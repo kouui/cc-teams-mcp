@@ -322,21 +322,33 @@ def _send_direct_message(team_name: str, sender: str, recipient: str, content: s
         raise ToolError(f"Recipient {recipient!r} is not a member of team {team_name!r}")
     if sender == recipient:
         raise ToolError("Cannot send a message to yourself")
-    if sender != "team-lead" and recipient != "team-lead":
-        raise ToolError("Teammates can only send direct messages to team-lead")
+    # NOTE: hub-spoke restriction commented out to allow teammate-to-teammate
+    # communication. Re-enable if we need to enforce team-lead routing again.
+    # if sender != "team-lead" and recipient != "team-lead":
+    #     raise ToolError("Teammates can only send direct messages to team-lead")
     target_color = None
     for m in config.members:
         if m.name == recipient and isinstance(m, TeammateMember):
             target_color = m.color
             break
+    enriched = _content_metadata(content, sender)
     messaging.send_plain_message(
         team_name,
         sender,
         recipient,
-        _content_metadata(content, sender),
+        enriched,
         summary=summary,
         color=target_color,
     )
+    # CC team-lead when teammates message each other directly
+    if sender != "team-lead" and recipient != "team-lead":
+        messaging.send_plain_message(
+            team_name,
+            sender,
+            "team-lead",
+            enriched,
+            summary=f"[CC {sender}->{recipient}] {summary}",
+        )
     return SendMessageResult(
         success=True,
         message=f"Message sent to {recipient}",
