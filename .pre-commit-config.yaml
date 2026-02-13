@@ -1,0 +1,61 @@
+# pre-commit install              # 安装 pre-commit hook
+# pre-commit install --hook-type pre-push   # 安装 pre-push hook
+
+repos:
+  # Local hooks - Project-specific checks
+  - repo: local
+    hooks:
+      # Protect main branch from direct commits
+      - id: protect-main-branch
+        name: protect main branch (no direct commits)
+        entry: bash -c 'branch=$(git rev-parse --abbrev-ref HEAD); if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then echo "❌ 禁止直接在 $branch 分支上提交，请使用 feature 分支并通过 PR 合并"; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: protect-main-push
+        name: protect main branch (no direct push)
+        entry: bash -c 'branch=$(git rev-parse --abbrev-ref HEAD); if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then echo "❌ 禁止直接 push 到 $branch 分支"; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: ruff-format
+        name: ruff format (code formatting)
+        entry: uv run ruff format
+        language: system
+        pass_filenames: true
+        types: [python]
+
+      - id: ruff-check
+        name: ruff check --fix (linting with auto-fix)
+        entry: uv run ruff check --fix
+        language: system
+        pass_filenames: true
+        types: [python]
+
+      - id: pyright
+        name: pyright (type checking)
+        entry: uv run pyright
+        language: system
+        pass_filenames: true
+        types: [python]
+
+      # Run fast unit tests before commit
+      - id: pytest-fast
+        name: Run unit tests
+        entry: poetry run pytest tests/ -x --tb=short
+        language: system
+        pass_filenames: false
+        always_run: false
+        stages: [commit]
+        verbose: true
+
+      # Validate YAML config files
+      - id: validate-config
+        name: Validate YAML configs
+        entry: poetry run python -c "import yaml; import sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]"
+        language: system
+        files: ^config/.*\.yaml$
+        verbose: true
