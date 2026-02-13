@@ -88,6 +88,7 @@ def build_claude_spawn_command(
         cmd += " --plan-mode-required"
     if skip_permissions():
         cmd += " --dangerously-skip-permissions"
+    cmd += f" {shlex.quote(member.prompt)}"
     return cmd
 
 
