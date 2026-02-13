@@ -1,19 +1,15 @@
 from __future__ import annotations
 
 import json
-import time
 from pathlib import Path
+import time
 
-import pytest
 from fastmcp import Client
+import pytest
 
 from claude_teams import messaging, tasks, teams
 from claude_teams.models import TeammateMember
-from claude_teams.server import (
-    _build_spawn_description,
-    _parse_backends_env,
-    mcp,
-)
+from claude_teams.server import _build_spawn_description, _parse_backends_env, mcp
 
 
 def _make_teammate(
@@ -63,9 +59,7 @@ def _data(result):
 class TestErrorPropagation:
     async def test_should_reject_second_team_in_same_session(self, client: Client):
         await client.call_tool("team_create", {"team_name": "alpha"})
-        result = await client.call_tool(
-            "team_create", {"team_name": "beta"}, raise_on_error=False
-        )
+        result = await client.call_tool("team_create", {"team_name": "beta"}, raise_on_error=False)
         assert result.is_error is True
         assert "alpha" in result.content[0].text
 
@@ -108,16 +102,10 @@ class TestDeletedTaskGuard:
                 "owner": "worker",
             },
         )
-        inbox = _data(
-            await client.call_tool(
-                "read_inbox", {"team_name": "t2", "agent_name": "worker"}
-            )
-        )
+        inbox = _data(await client.call_tool("read_inbox", {"team_name": "t2", "agent_name": "worker"}))
         assert inbox == []
 
-    async def test_should_send_assignment_when_owner_set_on_live_task(
-        self, client: Client
-    ):
+    async def test_should_send_assignment_when_owner_set_on_live_task(self, client: Client):
         await client.call_tool("team_create", {"team_name": "t2b"})
         teams.add_member("t2b", _make_teammate("worker", "t2b"))
         created = _data(
@@ -130,11 +118,7 @@ class TestDeletedTaskGuard:
             "task_update",
             {"team_name": "t2b", "task_id": created["id"], "owner": "worker"},
         )
-        inbox = _data(
-            await client.call_tool(
-                "read_inbox", {"team_name": "t2b", "agent_name": "worker"}
-            )
-        )
+        inbox = _data(await client.call_tool("read_inbox", {"team_name": "t2b", "agent_name": "worker"}))
         assert len(inbox) == 1
         payload = json.loads(inbox[0]["text"])
         assert payload["type"] == "task_assignment"
@@ -142,9 +126,7 @@ class TestDeletedTaskGuard:
 
 
 class TestShutdownResponseSender:
-    async def test_should_populate_correct_from_and_pane_id_on_approve(
-        self, client: Client
-    ):
+    async def test_should_populate_correct_from_and_pane_id_on_approve(self, client: Client):
         await client.call_tool("team_create", {"team_name": "t3"})
         teams.add_member("t3", _make_teammate("worker", "t3", pane_id="%42"))
         await client.call_tool(
@@ -157,11 +139,7 @@ class TestShutdownResponseSender:
                 "approve": True,
             },
         )
-        inbox = _data(
-            await client.call_tool(
-                "read_inbox", {"team_name": "t3", "agent_name": "team-lead"}
-            )
-        )
+        inbox = _data(await client.call_tool("read_inbox", {"team_name": "t3", "agent_name": "team-lead"}))
         assert len(inbox) == 1
         payload = json.loads(inbox[0]["text"])
         assert payload["type"] == "shutdown_approved"
@@ -183,18 +161,12 @@ class TestShutdownResponseSender:
                 "content": "still busy",
             },
         )
-        inbox = _data(
-            await client.call_tool(
-                "read_inbox", {"team_name": "t3b", "agent_name": "team-lead"}
-            )
-        )
+        inbox = _data(await client.call_tool("read_inbox", {"team_name": "t3b", "agent_name": "team-lead"}))
         assert len(inbox) == 1
         assert inbox[0]["from"] == "rebel"
         assert inbox[0]["text"] == "still busy"
 
-    async def test_should_reject_shutdown_response_from_non_member(
-        self, client: Client
-    ):
+    async def test_should_reject_shutdown_response_from_non_member(self, client: Client):
         await client.call_tool("team_create", {"team_name": "t3c"})
         result = await client.call_tool(
             "send_message",
@@ -227,11 +199,7 @@ class TestPlanApprovalSender:
                 "approve": True,
             },
         )
-        inbox = _data(
-            await client.call_tool(
-                "read_inbox", {"team_name": "t_plan", "agent_name": "dev"}
-            )
-        )
+        inbox = _data(await client.call_tool("read_inbox", {"team_name": "t_plan", "agent_name": "dev"}))
         assert len(inbox) == 1
         assert inbox[0]["from"] == "team-lead"
         payload = json.loads(inbox[0]["text"])
@@ -252,11 +220,7 @@ class TestPlanApprovalSender:
                 "content": "needs error handling",
             },
         )
-        inbox = _data(
-            await client.call_tool(
-                "read_inbox", {"team_name": "t_plan2", "agent_name": "dev2"}
-            )
-        )
+        inbox = _data(await client.call_tool("read_inbox", {"team_name": "t_plan2", "agent_name": "dev2"}))
         assert len(inbox) == 1
         assert inbox[0]["from"] == "team-lead"
         assert inbox[0]["text"] == "needs error handling"
@@ -291,19 +255,13 @@ class TestWiring:
                 "summary": "greeting",
             },
         )
-        inbox = _data(
-            await client.call_tool(
-                "read_inbox", {"team_name": "t5", "agent_name": "bob"}
-            )
-        )
+        inbox = _data(await client.call_tool("read_inbox", {"team_name": "t5", "agent_name": "bob"}))
         assert len(inbox) == 1
         assert inbox[0]["text"].startswith("hello bob")
         assert "sent from team-lead" in inbox[0]["text"]
         assert inbox[0]["from"] == "team-lead"
 
-    async def test_should_round_trip_teammate_message_to_team_lead_with_sender(
-        self, client: Client
-    ):
+    async def test_should_round_trip_teammate_message_to_team_lead_with_sender(self, client: Client):
         await client.call_tool("team_create", {"team_name": "t5b"})
         teams.add_member("t5b", _make_teammate("worker", "t5b"))
         result = await client.call_tool(
@@ -319,11 +277,7 @@ class TestWiring:
         )
         data = _data(result)
         assert data["routing"]["sender"] == "worker"
-        inbox = _data(
-            await client.call_tool(
-                "read_inbox", {"team_name": "t5b", "agent_name": "team-lead"}
-            )
-        )
+        inbox = _data(await client.call_tool("read_inbox", {"team_name": "t5b", "agent_name": "team-lead"}))
         assert len(inbox) == 1
         assert inbox[0]["from"] == "worker"
         assert inbox[0]["text"].startswith("done")
@@ -457,7 +411,7 @@ class TestSendMessageValidation:
         assert result.is_error is True
         assert "ghost" in result.content[0].text
 
-    async def test_should_reject_teammate_to_teammate_message(self, client: Client):
+    async def test_teammate_to_teammate_message_with_cc(self, client: Client):
         await client.call_tool("team_create", {"team_name": "tv9"})
         teams.add_member("tv9", _make_teammate("alice", "tv9"))
         teams.add_member("tv9", _make_teammate("bob", "tv9"))
@@ -471,10 +425,15 @@ class TestSendMessageValidation:
                 "content": "hi",
                 "summary": "note",
             },
-            raise_on_error=False,
         )
-        assert result.is_error is True
-        assert "team-lead" in result.content[0].text
+        assert result.is_error is not True
+        # bob should have the message
+        bob_msgs = messaging.read_inbox("tv9", "bob", mark_as_read=False)
+        assert any(m.from_ == "alice" for m in bob_msgs)
+        # team-lead should have a CC copy
+        lead_msgs = messaging.read_inbox("tv9", "team-lead", mark_as_read=False)
+        cc_msgs = [m for m in lead_msgs if m.from_ == "alice" and "[CC" in (m.summary or "")]
+        assert len(cc_msgs) == 1
 
     async def test_should_reject_self_message(self, client: Client):
         await client.call_tool("team_create", {"team_name": "tv_self"})
@@ -560,9 +519,7 @@ class TestProcessShutdownGuard:
 
     async def test_should_kill_tmux_pane_on_shutdown(self, client: Client, monkeypatch):
         killed = []
-        monkeypatch.setattr(
-            "claude_teams.server.kill_tmux_pane", lambda pane_id: killed.append(pane_id)
-        )
+        monkeypatch.setattr("claude_teams.server.kill_tmux_pane", lambda pane_id: killed.append(pane_id))
         await client.call_tool("team_create", {"team_name": "tsg3"})
         teams.add_member("tsg3", _make_teammate("worker", "tsg3", pane_id="%77"))
         result = await client.call_tool(
@@ -572,13 +529,9 @@ class TestProcessShutdownGuard:
         assert result.is_error is False
         assert killed == ["%77"]
 
-    async def test_should_kill_tmux_window_on_shutdown(
-        self, client: Client, monkeypatch
-    ):
+    async def test_should_kill_tmux_window_on_shutdown(self, client: Client, monkeypatch):
         killed = []
-        monkeypatch.setattr(
-            "claude_teams.server.kill_tmux_pane", lambda pane_id: killed.append(pane_id)
-        )
+        monkeypatch.setattr("claude_teams.server.kill_tmux_pane", lambda pane_id: killed.append(pane_id))
         await client.call_tool("team_create", {"team_name": "tsg4"})
         teams.add_member("tsg4", _make_teammate("worker", "tsg4", pane_id="@12"))
         result = await client.call_tool(
@@ -697,9 +650,7 @@ class TestTeamDeleteErrorWrapping:
 
 
 class TestPlanApprovalValidation:
-    async def test_should_reject_plan_approval_to_nonexistent_recipient(
-        self, client: Client
-    ):
+    async def test_should_reject_plan_approval_to_nonexistent_recipient(self, client: Client):
         await client.call_tool("team_create", {"team_name": "tp1"})
         result = await client.call_tool(
             "send_message",
@@ -714,9 +665,7 @@ class TestPlanApprovalValidation:
         assert result.is_error is True
         assert "ghost" in result.content[0].text
 
-    async def test_should_reject_plan_approval_with_empty_recipient(
-        self, client: Client
-    ):
+    async def test_should_reject_plan_approval_with_empty_recipient(self, client: Client):
         await client.call_tool("team_create", {"team_name": "tp2"})
         result = await client.call_tool(
             "send_message",
@@ -794,9 +743,7 @@ class TestBuildSpawnDescription:
         assert "'claude'" not in desc
         assert "'codex'" in desc
 
-    def test_should_hide_codex_when_not_in_enabled_backends(
-        self, monkeypatch
-    ) -> None:
+    def test_should_hide_codex_when_not_in_enabled_backends(self, monkeypatch) -> None:
         monkeypatch.delenv("USE_TMUX_WINDOWS", raising=False)
         desc = _build_spawn_description(
             "/bin/claude",
@@ -844,9 +791,7 @@ class TestSpawnBackendType:
         assert result.is_error is True
         assert "codex" in result.content[0].text.lower()
 
-    async def test_should_spawn_codex_teammate_successfully(
-        self, codex_client: Client
-    ):
+    async def test_should_spawn_codex_teammate_successfully(self, codex_client: Client):
         await codex_client.call_tool("team_create", {"team_name": "tbt2"})
         result = await codex_client.call_tool(
             "spawn_teammate",
@@ -862,9 +807,7 @@ class TestSpawnBackendType:
         assert data["name"] == "codex-worker"
         assert data["agent_id"] == "codex-worker@tbt2"
 
-    async def test_should_reject_claude_when_binary_not_found(
-        self, codex_only_client: Client
-    ):
+    async def test_should_reject_claude_when_binary_not_found(self, codex_only_client: Client):
         await codex_only_client.call_tool("team_create", {"team_name": "tbt3"})
         result = await codex_only_client.call_tool(
             "spawn_teammate",
@@ -882,9 +825,7 @@ class TestSpawnBackendType:
 
 
 class TestShutdownCodexTeammate:
-    async def test_shutdown_approved_includes_codex_backend_type(
-        self, codex_client: Client
-    ):
+    async def test_shutdown_approved_includes_codex_backend_type(self, codex_client: Client):
         await codex_client.call_tool("team_create", {"team_name": "tsd1"})
         teams.add_member(
             "tsd1",
@@ -905,11 +846,7 @@ class TestShutdownCodexTeammate:
                 "approve": True,
             },
         )
-        inbox = _data(
-            await codex_client.call_tool(
-                "read_inbox", {"team_name": "tsd1", "agent_name": "team-lead"}
-            )
-        )
+        inbox = _data(await codex_client.call_tool("read_inbox", {"team_name": "tsd1", "agent_name": "team-lead"}))
         assert len(inbox) == 1
         payload = json.loads(inbox[0]["text"])
         assert payload["type"] == "shutdown_approved"
@@ -940,9 +877,7 @@ async def claude_only_env_client(tmp_path: Path, monkeypatch):
 
 
 class TestEnabledBackendsValidation:
-    async def test_should_reject_disabled_backend_on_spawn(
-        self, claude_only_env_client: Client
-    ):
+    async def test_should_reject_disabled_backend_on_spawn(self, claude_only_env_client: Client):
         await claude_only_env_client.call_tool("team_create", {"team_name": "teb1"})
         result = await claude_only_env_client.call_tool(
             "spawn_teammate",
@@ -958,9 +893,7 @@ class TestEnabledBackendsValidation:
         assert result.is_error is True
         assert "not enabled" in result.content[0].text.lower()
 
-    async def test_should_accept_enabled_backend_on_spawn(
-        self, claude_only_env_client: Client
-    ):
+    async def test_should_accept_enabled_backend_on_spawn(self, claude_only_env_client: Client):
         await claude_only_env_client.call_tool("team_create", {"team_name": "teb2"})
         result = await claude_only_env_client.call_tool(
             "spawn_teammate",
@@ -1030,9 +963,7 @@ class TestCheckTeammate:
         assert len(result["pending_from"]) == 1
         assert "hello lead" in result["pending_from"][0]["text"]
 
-    async def test_should_skip_messages_when_include_messages_false(
-        self, client: Client
-    ):
+    async def test_should_skip_messages_when_include_messages_false(self, client: Client):
         await client.call_tool("team_create", {"team_name": "tct_nomsg"})
         teams.add_member("tct_nomsg", _make_teammate("worker", "tct_nomsg", pane_id=""))
         await client.call_tool(
