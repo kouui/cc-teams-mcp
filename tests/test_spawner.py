@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shlex
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -79,6 +80,8 @@ class TestBuildClaudeSpawnCommand:
         assert "--model" not in cmd  # model removed; each CLI uses its default
         assert "cd /tmp" in cmd
         assert "--plan-mode-required" not in cmd
+        # prompt should be passed as positional argument at the end
+        assert cmd.endswith(shlex.quote(member.prompt))
 
     def test_with_plan_mode(self) -> None:
         member = _make_member("researcher")
