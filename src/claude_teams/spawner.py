@@ -80,8 +80,9 @@ def build_claude_spawn_command(
         f"--team-name {shlex.quote(team_name)} "
         f"--agent-color {shlex.quote(member.color)} "
         f"--parent-session-id {shlex.quote(lead_session_id)} "
-        f"--agent-type {shlex.quote(member.agent_type)} "
-        f"--model {shlex.quote(member.model)}"
+        f"--agent-type {shlex.quote(member.agent_type)}"
+        # TODO: add --model flag back when we need to control the model per teammate;
+        # currently each CLI uses its own default model.
     )
     if member.plan_mode_required:
         cmd += " --plan-mode-required"
@@ -153,7 +154,6 @@ def spawn_teammate(
     claude_binary: str | None,
     lead_session_id: str,
     *,
-    model: str = "sonnet",
     subagent_type: str = "general-purpose",
     cwd: str | None = None,
     plan_mode_required: bool = False,
@@ -171,7 +171,6 @@ def spawn_teammate(
         agent_id=f"{name}@{team_name}",
         name=name,
         agent_type=subagent_type,
-        model=model,
         prompt=prompt,
         color=color,
         plan_mode_required=plan_mode_required,

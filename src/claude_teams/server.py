@@ -77,9 +77,9 @@ def _build_spawn_description(
         show_claude = show_claude and "claude" in enabled_backends
         show_codex = show_codex and "codex" in enabled_backends
     if show_claude:
-        backends.append("'claude' (default, models: sonnet, opus, haiku)")
+        backends.append("'claude' (default, uses CLI default model)")
     if show_codex:
-        backends.append("'codex' (uses default model from ~/.codex/config.toml)")
+        backends.append("'codex' (uses default model)")
     if backends:
         parts.append(f"Available backends: {'; '.join(backends)}.")
     return " ".join(parts)
@@ -261,14 +261,13 @@ def spawn_teammate_tool(
     name: str,
     prompt: str,
     ctx: Context,
-    model: str = "sonnet",
     subagent_type: str = "general-purpose",
     cwd: str = "",
     plan_mode_required: bool = False,
     backend_type: Literal["claude", "codex"] = "claude",
 ) -> dict:
-    """Spawn a new teammate in tmux. Description is dynamically updated
-    at startup with available backends and models."""
+    """Spawn a new teammate in tmux. Each teammate uses the default model
+    of its backend CLI. Description is dynamically updated at startup."""
     import os.path
 
     if not cwd or not os.path.isabs(cwd):
@@ -284,7 +283,6 @@ def spawn_teammate_tool(
             prompt=prompt,
             claude_binary=ls.get("claude_binary"),
             lead_session_id=ls["session_id"],
-            model=model,
             subagent_type=subagent_type,
             plan_mode_required=plan_mode_required,
             backend_type=backend_type,

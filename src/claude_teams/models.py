@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import time
+from typing import Annotated, Any, Literal, Union
 import uuid
-from typing import Any, Literal
-
-from typing import Annotated, Union
 
 from pydantic import BaseModel, Discriminator, Field, Tag
 
 COLOR_PALETTE: list[str] = [
-    "blue", "green", "yellow", "purple",
-    "orange", "pink", "cyan", "red",
+    "blue",
+    "green",
+    "yellow",
+    "purple",
+    "orange",
+    "pink",
+    "cyan",
+    "red",
 ]
 
 
@@ -33,7 +37,7 @@ class TeammateMember(BaseModel):
     agent_id: str = Field(alias="agentId")
     name: str
     agent_type: str = Field(alias="agentType")
-    model: str
+    model: str = ""
     prompt: str
     color: str
     plan_mode_required: bool = Field(alias="planModeRequired", default=False)
@@ -54,10 +58,7 @@ def _discriminate_member(v: Any) -> str:
 
 
 MemberUnion = Annotated[
-    Union[
-        Annotated[LeadMember, Tag("lead")],
-        Annotated[TeammateMember, Tag("teammate")],
-    ],
+    Annotated[LeadMember, Tag("lead")] | Annotated[TeammateMember, Tag("teammate")],
     Discriminator(_discriminate_member),
 ]
 
