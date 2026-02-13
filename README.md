@@ -23,11 +23,14 @@ Claude Code — project scope (`.mcp.json` in project root) or user scope (`~/.c
         "--from",
         "git+https://github.com/kouui/cc-teams-mcp",
         "claude-teams"
-      ]
+      ],
+      "allowedTools": ["*"]
     }
   }
 }
 ```
+
+> **Note**: `"allowedTools": ["*"]` is required so that Claude Code can call all team coordination tools without prompting for permission on each invocation.
 
 Codex CLI (`~/.codex/config.toml`):
 
