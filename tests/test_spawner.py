@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from claude_teams import teams, messaging
+from claude_teams import messaging, teams
 from claude_teams.models import COLOR_PALETTE, TeammateMember
 from claude_teams.spawner import (
     assign_color,
@@ -15,7 +15,6 @@ from claude_teams.spawner import (
     kill_tmux_pane,
     spawn_teammate,
 )
-
 
 TEAM = "test-team"
 SESSION_ID = "test-session-id"
@@ -77,8 +76,8 @@ class TestBuildClaudeSpawnCommand:
         assert "--agent-color" in cmd
         assert "--parent-session-id" in cmd
         assert "--agent-type" in cmd
-        assert "--model" in cmd
-        assert f"cd /tmp" in cmd
+        assert "--model" not in cmd  # model removed; each CLI uses its default
+        assert "cd /tmp" in cmd
         assert "--plan-mode-required" not in cmd
 
     def test_with_plan_mode(self) -> None:
@@ -90,18 +89,14 @@ class TestBuildClaudeSpawnCommand:
 
 class TestBuildCodexSpawnCommand:
     def test_format(self) -> None:
-        cmd = build_codex_spawn_command(
-            "/usr/local/bin/codex", "Do research", "/tmp/work"
-        )
+        cmd = build_codex_spawn_command("/usr/local/bin/codex", "Do research", "/tmp/work")
         assert "/usr/local/bin/codex" in cmd
         assert "--dangerously-bypass-approvals-and-sandbox" in cmd
         assert "--no-alt-screen" in cmd
         assert "cd /tmp/work" in cmd
 
     def test_should_not_contain_claude_flags(self) -> None:
-        cmd = build_codex_spawn_command(
-            "/usr/local/bin/codex", "Do research", "/tmp"
-        )
+        cmd = build_codex_spawn_command("/usr/local/bin/codex", "Do research", "/tmp")
         assert "CLAUDECODE" not in cmd
         assert "--agent-id" not in cmd
         assert "--team-name" not in cmd
@@ -110,34 +105,24 @@ class TestBuildCodexSpawnCommand:
 class TestSpawnTeammateNameValidation:
     def test_should_reject_empty_name(self, team_dir: Path) -> None:
         with pytest.raises(ValueError, match="Invalid"):
-            spawn_teammate(
-                TEAM, "", "prompt", "/bin/echo", SESSION_ID, base_dir=team_dir
-            )
+            spawn_teammate(TEAM, "", "prompt", "/bin/echo", SESSION_ID, base_dir=team_dir)
 
     def test_should_reject_name_with_special_chars(self, team_dir: Path) -> None:
         with pytest.raises(ValueError, match="Invalid"):
-            spawn_teammate(
-                TEAM, "agent!@#", "prompt", "/bin/echo", SESSION_ID, base_dir=team_dir
-            )
+            spawn_teammate(TEAM, "agent!@#", "prompt", "/bin/echo", SESSION_ID, base_dir=team_dir)
 
     def test_should_reject_name_exceeding_64_chars(self, team_dir: Path) -> None:
         with pytest.raises(ValueError, match="too long"):
-            spawn_teammate(
-                TEAM, "a" * 65, "prompt", "/bin/echo", SESSION_ID, base_dir=team_dir
-            )
+            spawn_teammate(TEAM, "a" * 65, "prompt", "/bin/echo", SESSION_ID, base_dir=team_dir)
 
     def test_should_reject_reserved_name_team_lead(self, team_dir: Path) -> None:
         with pytest.raises(ValueError, match="reserved"):
-            spawn_teammate(
-                TEAM, "team-lead", "prompt", "/bin/echo", SESSION_ID, base_dir=team_dir
-            )
+            spawn_teammate(TEAM, "team-lead", "prompt", "/bin/echo", SESSION_ID, base_dir=team_dir)
 
 
 class TestSpawnTeammate:
     @patch("claude_teams.spawner.subprocess")
-    def test_registers_member_before_spawn(
-        self, mock_subprocess: MagicMock, team_dir: Path
-    ) -> None:
+    def test_registers_member_before_spawn(self, mock_subprocess: MagicMock, team_dir: Path) -> None:
         mock_subprocess.run.return_value.stdout = "%42\n"
         spawn_teammate(
             TEAM,
@@ -152,9 +137,7 @@ class TestSpawnTeammate:
         assert "researcher" in names
 
     @patch("claude_teams.spawner.subprocess")
-    def test_writes_prompt_to_inbox(
-        self, mock_subprocess: MagicMock, team_dir: Path
-    ) -> None:
+    def test_writes_prompt_to_inbox(self, mock_subprocess: MagicMock, team_dir: Path) -> None:
         mock_subprocess.run.return_value.stdout = "%42\n"
         spawn_teammate(
             TEAM,
@@ -209,9 +192,7 @@ class TestSpawnTeammate:
         assert call_args[call_args.index("-n") + 1] == "@claude-team | window-worker"
 
     @patch("claude_teams.spawner.subprocess.run")
-    def test_should_rollback_member_when_tmux_spawn_fails(
-        self, mock_run: MagicMock, team_dir: Path
-    ) -> None:
+    def test_should_rollback_member_when_tmux_spawn_fails(self, mock_run: MagicMock, team_dir: Path) -> None:
         import subprocess as sp
 
         mock_run.side_effect = sp.CalledProcessError(1, ["tmux", "split-window"])
@@ -234,18 +215,12 @@ class TestKillTmuxPane:
     @patch("claude_teams.spawner.subprocess")
     def test_calls_subprocess(self, mock_subprocess: MagicMock) -> None:
         kill_tmux_pane("%99")
-        mock_subprocess.run.assert_called_once_with(
-            ["tmux", "kill-pane", "-t", "%99"], check=False
-        )
+        mock_subprocess.run.assert_called_once_with(["tmux", "kill-pane", "-t", "%99"], check=False)
 
     @patch("claude_teams.spawner.subprocess")
-    def test_calls_kill_window_for_window_target(
-        self, mock_subprocess: MagicMock
-    ) -> None:
+    def test_calls_kill_window_for_window_target(self, mock_subprocess: MagicMock) -> None:
         kill_tmux_pane("@99")
-        mock_subprocess.run.assert_called_once_with(
-            ["tmux", "kill-window", "-t", "@99"], check=False
-        )
+        mock_subprocess.run.assert_called_once_with(["tmux", "kill-window", "-t", "@99"], check=False)
 
 
 class TestSpawnTeammateBackendType:
@@ -275,9 +250,7 @@ class TestSpawnTeammateBackendType:
             )
 
     @patch("claude_teams.spawner.subprocess")
-    def test_should_use_claude_command_for_claude_backend(
-        self, mock_subprocess: MagicMock, team_dir: Path
-    ) -> None:
+    def test_should_use_claude_command_for_claude_backend(self, mock_subprocess: MagicMock, team_dir: Path) -> None:
         mock_subprocess.run.return_value.stdout = "%42\n"
         member = spawn_teammate(
             TEAM,
@@ -295,9 +268,7 @@ class TestSpawnTeammateBackendType:
         assert "--agent-id" in cmd_str
 
     @patch("claude_teams.spawner.subprocess")
-    def test_should_use_codex_command_for_codex_backend(
-        self, mock_subprocess: MagicMock, team_dir: Path
-    ) -> None:
+    def test_should_use_codex_command_for_codex_backend(self, mock_subprocess: MagicMock, team_dir: Path) -> None:
         mock_subprocess.run.return_value.stdout = "%42\n"
         member = spawn_teammate(
             TEAM,
@@ -319,9 +290,7 @@ class TestSpawnTeammateBackendType:
         assert "--agent-id" not in cmd_str
 
     @patch("claude_teams.spawner.subprocess")
-    def test_codex_should_use_prompt_wrapper(
-        self, mock_subprocess: MagicMock, team_dir: Path
-    ) -> None:
+    def test_codex_should_use_prompt_wrapper(self, mock_subprocess: MagicMock, team_dir: Path) -> None:
         mock_subprocess.run.return_value.stdout = "%42\n"
         spawn_teammate(
             TEAM,
@@ -342,9 +311,7 @@ class TestSpawnTeammateBackendType:
         assert "send_message" in cmd_str
 
     @patch("claude_teams.spawner.subprocess")
-    def test_codex_should_write_raw_prompt_to_inbox(
-        self, mock_subprocess: MagicMock, team_dir: Path
-    ) -> None:
+    def test_codex_should_write_raw_prompt_to_inbox(self, mock_subprocess: MagicMock, team_dir: Path) -> None:
         mock_subprocess.run.return_value.stdout = "%42\n"
         raw_prompt = "Analyze the codebase"
         spawn_teammate(
@@ -362,9 +329,7 @@ class TestSpawnTeammateBackendType:
         assert msgs[0].text == raw_prompt
 
     @patch("claude_teams.spawner.subprocess.run")
-    def test_should_rollback_member_when_codex_tmux_spawn_fails(
-        self, mock_run: MagicMock, team_dir: Path
-    ) -> None:
+    def test_should_rollback_member_when_codex_tmux_spawn_fails(self, mock_run: MagicMock, team_dir: Path) -> None:
         import subprocess as sp
 
         mock_run.side_effect = sp.CalledProcessError(1, ["tmux", "split-window"])
@@ -384,9 +349,7 @@ class TestSpawnTeammateBackendType:
         assert "codex-broken" not in names
 
     @patch("claude_teams.spawner.subprocess")
-    def test_should_write_raw_prompt_to_inbox_not_wrapped(
-        self, mock_subprocess: MagicMock, team_dir: Path
-    ) -> None:
+    def test_should_write_raw_prompt_to_inbox_not_wrapped(self, mock_subprocess: MagicMock, team_dir: Path) -> None:
         mock_subprocess.run.return_value.stdout = "%42\n"
         raw_prompt = "Analyze the codebase"
         spawn_teammate(
@@ -411,9 +374,7 @@ class TestDiscoverHarnessBinary:
         mock_which.assert_called_once_with("claude")
 
     @patch("claude_teams.spawner.shutil.which")
-    def test_should_return_none_when_claude_not_found(
-        self, mock_which: MagicMock
-    ) -> None:
+    def test_should_return_none_when_claude_not_found(self, mock_which: MagicMock) -> None:
         mock_which.return_value = None
         assert discover_harness_binary("claude") is None
 
@@ -424,8 +385,6 @@ class TestDiscoverHarnessBinary:
         mock_which.assert_called_once_with("codex")
 
     @patch("claude_teams.spawner.shutil.which")
-    def test_should_return_none_when_codex_not_found(
-        self, mock_which: MagicMock
-    ) -> None:
+    def test_should_return_none_when_codex_not_found(self, mock_which: MagicMock) -> None:
         mock_which.return_value = None
         assert discover_harness_binary("codex") is None
