@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import shlex
 import shutil
 import subprocess
 import time
-from pathlib import Path
 
 from claude_teams import messaging, teams
 from claude_teams.models import COLOR_PALETTE, InboxMessage, TeammateMember
 from claude_teams.teams import _VALID_NAME_RE
-
 
 _CODEX_PROMPT_WRAPPER = """\
 You are team member '{name}' on team '{team_name}'.
@@ -107,25 +106,10 @@ def build_codex_spawn_command(
     return cmd
 
 
-def spawn_teammate(
-    team_name: str,
-    name: str,
-    prompt: str,
-    claude_binary: str | None,
-    lead_session_id: str,
-    *,
-    model: str = "sonnet",
-    subagent_type: str = "general-purpose",
-    cwd: str | None = None,
-    plan_mode_required: bool = False,
-    base_dir: Path | None = None,
-    backend_type: str = "claude",
-    codex_binary: str | None = None,
-) -> TeammateMember:
+def _validate_spawn_args(name: str, backend_type: str, claude_binary: str | None, codex_binary: str | None) -> None:
+    """Validate spawn_teammate arguments, raising ValueError on failure."""
     if not _VALID_NAME_RE.match(name):
-        raise ValueError(
-            f"Invalid agent name: {name!r}. Use only letters, numbers, hyphens, underscores."
-        )
+        raise ValueError(f"Invalid agent name: {name!r}. Use only letters, numbers, hyphens, underscores.")
     if len(name) > 64:
         raise ValueError(f"Agent name too long ({len(name)} chars, max 64)")
     if name == "team-lead":
@@ -141,8 +125,45 @@ def spawn_teammate(
             "Install Claude Code or ensure it is in your PATH."
         )
 
-    resolved_cwd = cwd or str(Path.cwd())
 
+def _build_spawn_command(
+    member: TeammateMember,
+    backend_type: str,
+    prompt: str,
+    team_name: str,
+    claude_binary: str | None,
+    codex_binary: str | None,
+    lead_session_id: str,
+) -> str:
+    """Build the shell command for spawning the teammate process."""
+    if backend_type == "codex":
+        wrapped = _CODEX_PROMPT_WRAPPER.format(
+            name=member.name,
+            team_name=team_name,
+            prompt=prompt,
+        )
+        return build_codex_spawn_command(codex_binary, wrapped, member.cwd)
+    return build_claude_spawn_command(member, claude_binary, lead_session_id)
+
+
+def spawn_teammate(
+    team_name: str,
+    name: str,
+    prompt: str,
+    claude_binary: str | None,
+    lead_session_id: str,
+    *,
+    model: str = "sonnet",
+    subagent_type: str = "general-purpose",
+    cwd: str | None = None,
+    plan_mode_required: bool = False,
+    base_dir: Path | None = None,
+    backend_type: str = "claude",
+    codex_binary: str | None = None,
+) -> TeammateMember:
+    _validate_spawn_args(name, backend_type, claude_binary, codex_binary)
+
+    resolved_cwd = cwd or str(Path.cwd())
     color = assign_color(team_name, base_dir)
     now_ms = int(time.time() * 1000)
 
@@ -175,16 +196,15 @@ def spawn_teammate(
         )
         messaging.append_message(team_name, name, initial_msg, base_dir)
 
-        if backend_type == "codex":
-            wrapped = _CODEX_PROMPT_WRAPPER.format(
-                name=name,
-                team_name=team_name,
-                prompt=prompt,
-            )
-            cmd = build_codex_spawn_command(codex_binary, wrapped, resolved_cwd)
-        else:
-            cmd = build_claude_spawn_command(member, claude_binary, lead_session_id)
-
+        cmd = _build_spawn_command(
+            member,
+            backend_type,
+            prompt,
+            team_name,
+            claude_binary,
+            codex_binary,
+            lead_session_id,
+        )
         result = subprocess.run(
             build_tmux_spawn_args(cmd, name),
             capture_output=True,

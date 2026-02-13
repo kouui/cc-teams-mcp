@@ -3,9 +3,9 @@ import json
 import logging
 import os
 import time
-import uuid
 from types import SimpleNamespace
 from typing import Any, Literal
+import uuid
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -21,12 +21,7 @@ from claude_teams.models import (
     SpawnResult,
     TeammateMember,
 )
-from claude_teams.spawner import (
-    discover_harness_binary,
-    kill_tmux_pane,
-    spawn_teammate,
-    use_tmux_windows,
-)
+from claude_teams.spawner import discover_harness_binary, kill_tmux_pane, spawn_teammate, use_tmux_windows
 from claude_teams.tmux_introspection import peek_pane, resolve_pane_target
 
 logger = logging.getLogger(__name__)
@@ -58,13 +53,7 @@ _VALID_BACKENDS = frozenset(KNOWN_CLIENTS.values())
 def _parse_backends_env(raw: str) -> list[str]:
     if not raw:
         return []
-    return list(
-        dict.fromkeys(
-            b.strip()
-            for b in raw.split(",")
-            if b.strip() and b.strip() in _VALID_BACKENDS
-        )
-    )
+    return list(dict.fromkeys(b.strip() for b in raw.split(",") if b.strip() and b.strip() in _VALID_BACKENDS))
 
 
 _SPAWN_TOOL_BASE_DESCRIPTION = (
@@ -104,8 +93,7 @@ _CHECK_TEAMMATE_BASE_DESCRIPTION = (
 
 
 _READ_INBOX_BASE_DESCRIPTION = (
-    "Read messages from an agent's inbox. Returns unread messages by default "
-    "and marks them as read."
+    "Read messages from an agent's inbox. Returns unread messages by default and marks them as read."
 )
 
 
@@ -128,8 +116,7 @@ async def app_lifespan(server):
     codex_binary = discover_harness_binary("codex")
     if not claude_binary and not codex_binary:
         raise FileNotFoundError(
-            "No coding agent binary found on PATH. "
-            "Install Claude Code ('claude') or Codex CLI ('codex')."
+            "No coding agent binary found on PATH. Install Claude Code ('claude') or Codex CLI ('codex')."
         )
 
     enabled_backends = _parse_backends_env(os.environ.get("CLAUDE_TEAMS_BACKENDS", ""))
@@ -250,12 +237,8 @@ def team_create(
     (letters, numbers, hyphens, underscores)."""
     ls = _get_lifespan(ctx)
     if ls.get("active_team"):
-        raise ToolError(
-            f"Session already has active team: {ls['active_team']}. One team per session."
-        )
-    result = teams.create_team(
-        name=team_name, session_id=ls["session_id"], description=description
-    )
+        raise ToolError(f"Session already has active team: {ls['active_team']}. One team per session.")
+    result = teams.create_team(name=team_name, session_id=ls["session_id"], description=description)
     ls["active_team"] = team_name
     return result.model_dump()
 
@@ -325,6 +308,167 @@ def _find_teammate(team_name: str, name: str) -> TeammateMember | None:
     return None
 
 
+def _send_direct_message(team_name: str, sender: str, recipient: str, content: str, summary: str) -> dict:
+    """Handle type='message': send a direct message between members."""
+    if not content:
+        raise ToolError("Message content must not be empty")
+    if not summary:
+        raise ToolError("Message summary must not be empty")
+    if not recipient:
+        raise ToolError("Message recipient must not be empty")
+    config = teams.read_config(team_name)
+    member_names = {m.name for m in config.members}
+    if sender not in member_names:
+        raise ToolError(f"Sender {sender!r} is not a member of team {team_name!r}")
+    if recipient not in member_names:
+        raise ToolError(f"Recipient {recipient!r} is not a member of team {team_name!r}")
+    if sender == recipient:
+        raise ToolError("Cannot send a message to yourself")
+    if sender != "team-lead" and recipient != "team-lead":
+        raise ToolError("Teammates can only send direct messages to team-lead")
+    target_color = None
+    for m in config.members:
+        if m.name == recipient and isinstance(m, TeammateMember):
+            target_color = m.color
+            break
+    messaging.send_plain_message(
+        team_name,
+        sender,
+        recipient,
+        _content_metadata(content, sender),
+        summary=summary,
+        color=target_color,
+    )
+    return SendMessageResult(
+        success=True,
+        message=f"Message sent to {recipient}",
+        routing={"sender": sender, "target": recipient, "targetColor": target_color},
+    ).model_dump(exclude_none=True)
+
+
+def _send_broadcast(team_name: str, sender: str, content: str, summary: str) -> dict:
+    """Handle type='broadcast': send to all teammates."""
+    if sender != "team-lead":
+        raise ToolError("Only team-lead can send broadcasts")
+    if not summary:
+        raise ToolError("Broadcast summary must not be empty")
+    config = teams.read_config(team_name)
+    enriched = _content_metadata(content, sender)
+    count = 0
+    for m in config.members:
+        if isinstance(m, TeammateMember):
+            messaging.send_plain_message(
+                team_name,
+                "team-lead",
+                m.name,
+                enriched,
+                summary=summary,
+                color=None,
+            )
+            count += 1
+    return SendMessageResult(
+        success=True,
+        message=f"Broadcast sent to {count} teammate(s)",
+    ).model_dump(exclude_none=True)
+
+
+def _send_shutdown_request(team_name: str, recipient: str, content: str) -> dict:
+    """Handle type='shutdown_request': ask a teammate to shut down."""
+    if not recipient:
+        raise ToolError("Shutdown request recipient must not be empty")
+    if recipient == "team-lead":
+        raise ToolError("Cannot send shutdown request to team-lead")
+    config = teams.read_config(team_name)
+    member_names = {m.name for m in config.members}
+    if recipient not in member_names:
+        raise ToolError(f"Recipient {recipient!r} is not a member of team {team_name!r}")
+    req_id = messaging.send_shutdown_request(team_name, recipient, reason=content)
+    return SendMessageResult(
+        success=True,
+        message=f"Shutdown request sent to {recipient}",
+        request_id=req_id,
+        target=recipient,
+    ).model_dump(exclude_none=True)
+
+
+def _send_shutdown_response(team_name: str, sender: str, content: str, request_id: str, approve: bool | None) -> dict:
+    """Handle type='shutdown_response': respond to a shutdown request."""
+    member = _find_teammate(team_name, sender)
+    if member is None:
+        raise ToolError(f"Sender {sender!r} is not a teammate in team {team_name!r}")
+    if approve:
+        payload = ShutdownApproved(
+            request_id=request_id,
+            from_=sender,
+            timestamp=messaging.now_iso(),
+            pane_id=member.tmux_pane_id,
+            backend_type=member.backend_type,
+        )
+        messaging.send_structured_message(team_name, sender, "team-lead", payload)
+        return SendMessageResult(
+            success=True,
+            message=f"Shutdown approved for request {request_id}",
+        ).model_dump(exclude_none=True)
+    messaging.send_plain_message(
+        team_name,
+        sender,
+        "team-lead",
+        content or "Shutdown rejected",
+        summary="shutdown_rejected",
+    )
+    return SendMessageResult(
+        success=True,
+        message=f"Shutdown rejected for request {request_id}",
+    ).model_dump(exclude_none=True)
+
+
+def _send_plan_approval_response(
+    team_name: str, sender: str, recipient: str, content: str, approve: bool | None
+) -> dict:
+    """Handle type='plan_approval_response': respond to a plan approval request."""
+    if not recipient:
+        raise ToolError("Plan approval recipient must not be empty")
+    config = teams.read_config(team_name)
+    member_names = {m.name for m in config.members}
+    if recipient not in member_names:
+        raise ToolError(f"Recipient {recipient!r} is not a member of team {team_name!r}")
+    if approve:
+        messaging.send_plain_message(
+            team_name,
+            sender,
+            recipient,
+            '{"type":"plan_approval","approved":true}',
+            summary="plan_approved",
+        )
+    else:
+        messaging.send_plain_message(
+            team_name,
+            sender,
+            recipient,
+            content or "Plan rejected",
+            summary="plan_rejected",
+        )
+    return SendMessageResult(
+        success=True,
+        message=f"Plan {'approved' if approve else 'rejected'} for {recipient}",
+    ).model_dump(exclude_none=True)
+
+
+_MESSAGE_HANDLERS = {
+    "message": lambda kw: _send_direct_message(
+        kw["team_name"], kw["sender"], kw["recipient"], kw["content"], kw["summary"]
+    ),
+    "broadcast": lambda kw: _send_broadcast(kw["team_name"], kw["sender"], kw["content"], kw["summary"]),
+    "shutdown_request": lambda kw: _send_shutdown_request(kw["team_name"], kw["recipient"], kw["content"]),
+    "shutdown_response": lambda kw: _send_shutdown_response(
+        kw["team_name"], kw["sender"], kw["content"], kw["request_id"], kw["approve"]
+    ),
+    "plan_approval_response": lambda kw: _send_plan_approval_response(
+        kw["team_name"], kw["sender"], kw["recipient"], kw["content"], kw["approve"]
+    ),
+}
+
+
 @mcp.tool
 def send_message(
     team_name: str,
@@ -349,170 +493,25 @@ def send_message(
     Type 'shutdown_request' asks a teammate to shut down (requires recipient; content used as reason).
     Type 'shutdown_response' responds to a shutdown request (requires sender, request_id, approve).
     Type 'plan_approval_response' responds to a plan approval request (requires recipient, request_id, approve)."""
-
     try:
         teams.read_config(team_name)
     except FileNotFoundError:
         raise ToolError(f"Team {team_name!r} not found")
 
-    if type == "message":
-        if not content:
-            raise ToolError("Message content must not be empty")
-        if not summary:
-            raise ToolError("Message summary must not be empty")
-        if not recipient:
-            raise ToolError("Message recipient must not be empty")
-        config = teams.read_config(team_name)
-        member_names = {m.name for m in config.members}
-        if sender not in member_names:
-            raise ToolError(f"Sender {sender!r} is not a member of team {team_name!r}")
-        if recipient not in member_names:
-            raise ToolError(
-                f"Recipient {recipient!r} is not a member of team {team_name!r}"
-            )
-        if sender == recipient:
-            raise ToolError("Cannot send a message to yourself")
-        if sender != "team-lead" and recipient != "team-lead":
-            raise ToolError("Teammates can only send direct messages to team-lead")
-        target_color = None
-        for m in config.members:
-            if m.name == recipient and isinstance(m, TeammateMember):
-                target_color = m.color
-                break
-        content = _content_metadata(content, sender)
-        messaging.send_plain_message(
-            team_name,
-            sender,
-            recipient,
-            content,
-            summary=summary,
-            color=target_color,
-        )
-
-        return SendMessageResult(
-            success=True,
-            message=f"Message sent to {recipient}",
-            routing={
-                "sender": sender,
-                "target": recipient,
-                "targetColor": target_color,
-            },
-        ).model_dump(exclude_none=True)
-
-    elif type == "broadcast":
-        if sender != "team-lead":
-            raise ToolError("Only team-lead can send broadcasts")
-        if not summary:
-            raise ToolError("Broadcast summary must not be empty")
-        config = teams.read_config(team_name)
-        content = _content_metadata(content, sender)
-        count = 0
-        for m in config.members:
-            if isinstance(m, TeammateMember):
-                messaging.send_plain_message(
-                    team_name,
-                    "team-lead",
-                    m.name,
-                    content,
-                    summary=summary,
-                    color=None,
-                )
-                count += 1
-        return SendMessageResult(
-            success=True,
-            message=f"Broadcast sent to {count} teammate(s)",
-        ).model_dump(exclude_none=True)
-
-    elif type == "shutdown_request":
-        if not recipient:
-            raise ToolError("Shutdown request recipient must not be empty")
-        if recipient == "team-lead":
-            raise ToolError("Cannot send shutdown request to team-lead")
-        config = teams.read_config(team_name)
-        member_names = {m.name for m in config.members}
-        if recipient not in member_names:
-            raise ToolError(
-                f"Recipient {recipient!r} is not a member of team {team_name!r}"
-            )
-        req_id = messaging.send_shutdown_request(team_name, recipient, reason=content)
-        return SendMessageResult(
-            success=True,
-            message=f"Shutdown request sent to {recipient}",
-            request_id=req_id,
-            target=recipient,
-        ).model_dump(exclude_none=True)
-
-    elif type == "shutdown_response":
-        config = teams.read_config(team_name)
-        member = None
-        for m in config.members:
-            if isinstance(m, TeammateMember) and m.name == sender:
-                member = m
-                break
-        if member is None:
-            raise ToolError(
-                f"Sender {sender!r} is not a teammate in team {team_name!r}"
-            )
-
-        if approve:
-            pane_id = member.tmux_pane_id
-            backend = member.backend_type
-            payload = ShutdownApproved(
-                request_id=request_id,
-                from_=sender,
-                timestamp=messaging.now_iso(),
-                pane_id=pane_id,
-                backend_type=backend,
-            )
-            messaging.send_structured_message(team_name, sender, "team-lead", payload)
-            return SendMessageResult(
-                success=True,
-                message=f"Shutdown approved for request {request_id}",
-            ).model_dump(exclude_none=True)
-        else:
-            messaging.send_plain_message(
-                team_name,
-                sender,
-                "team-lead",
-                content or "Shutdown rejected",
-                summary="shutdown_rejected",
-            )
-            return SendMessageResult(
-                success=True,
-                message=f"Shutdown rejected for request {request_id}",
-            ).model_dump(exclude_none=True)
-
-    elif type == "plan_approval_response":
-        if not recipient:
-            raise ToolError("Plan approval recipient must not be empty")
-        config = teams.read_config(team_name)
-        member_names = {m.name for m in config.members}
-        if recipient not in member_names:
-            raise ToolError(
-                f"Recipient {recipient!r} is not a member of team {team_name!r}"
-            )
-        if approve:
-            messaging.send_plain_message(
-                team_name,
-                sender,
-                recipient,
-                '{"type":"plan_approval","approved":true}',
-                summary="plan_approved",
-            )
-        else:
-            messaging.send_plain_message(
-                team_name,
-                sender,
-                recipient,
-                content or "Plan rejected",
-                summary="plan_rejected",
-            )
-        return SendMessageResult(
-            success=True,
-            message=f"Plan {'approved' if approve else 'rejected'} for {recipient}",
-        ).model_dump(exclude_none=True)
-
-    raise ToolError(f"Unknown message type: {type}")
+    handler = _MESSAGE_HANDLERS.get(type)
+    if handler is None:
+        raise ToolError(f"Unknown message type: {type}")
+    return handler(
+        {
+            "team_name": team_name,
+            "sender": sender,
+            "recipient": recipient,
+            "content": content,
+            "summary": summary,
+            "request_id": request_id,
+            "approve": approve,
+        }
+    )
 
 
 @mcp.tool
@@ -614,9 +613,7 @@ def read_inbox(
     member_names = {m.name for m in config.members}
     if agent_name not in member_names:
         raise ToolError(f"Agent {agent_name!r} is not a member of team {team_name!r}")
-    msgs = messaging.read_inbox(
-        team_name, agent_name, unread_only=unread_only, mark_as_read=mark_as_read
-    )
+    msgs = messaging.read_inbox(team_name, agent_name, unread_only=unread_only, mark_as_read=mark_as_read)
     return [m.model_dump(by_alias=True, exclude_none=True) for m in msgs]
 
 
@@ -669,6 +666,21 @@ def process_shutdown_approved(team_name: str, agent_name: str, ctx: Context) -> 
     return {"success": True, "message": f"{agent_name} removed from team."}
 
 
+def _check_tmux_status(pane_id_raw: str, include_output: bool, output_lines: int) -> dict:
+    """Check tmux pane status and optionally capture output."""
+    if not pane_id_raw:
+        return {"alive": False, "error": "no tmux target recorded", "output": ""}
+    pane_id, resolve_error = resolve_pane_target(pane_id_raw)
+    if pane_id is None:
+        return {"alive": False, "error": resolve_error, "output": ""}
+    pane = peek_pane(pane_id, output_lines if include_output else 1)
+    return {
+        "alive": pane["alive"],
+        "error": pane["error"],
+        "output": pane["output"] if include_output else "",
+    }
+
+
 @mcp.tool
 async def check_teammate(
     team_name: str,
@@ -685,20 +697,10 @@ async def check_teammate(
     output_lines = max(1, min(output_lines, 120))
     max_messages = max(1, min(max_messages, 20))
 
-    try:
-        config = teams.read_config(team_name)
-    except FileNotFoundError:
-        raise ToolError(f"Team {team_name!r} not found")
-
-    member = None
-    for m in config.members:
-        if isinstance(m, TeammateMember) and m.name == agent_name:
-            member = m
-            break
+    member = _find_teammate(team_name, agent_name)
     if member is None:
         raise ToolError(f"Teammate {agent_name!r} not found in team {team_name!r}")
 
-    # 1. Read lead's inbox for unread messages FROM this teammate
     pending_from: list[dict] = []
     if include_messages:
         msgs = messaging.read_inbox_filtered(
@@ -711,48 +713,28 @@ async def check_teammate(
         )
         pending_from = [m.model_dump(by_alias=True, exclude_none=True) for m in msgs]
 
-    # 2. Check teammate's unread count (messages they haven't read)
     try:
-        their_unread = messaging.read_inbox(
-            team_name, agent_name, unread_only=True, mark_as_read=False
-        )
+        their_unread = messaging.read_inbox(team_name, agent_name, unread_only=True, mark_as_read=False)
         their_unread_count = len(their_unread)
     except (FileNotFoundError, json.JSONDecodeError):
         their_unread_count = 0
 
-    # 3. tmux status
-    alive = False
-    error = None
-    output = ""
-    if not member.tmux_pane_id:
-        error = "no tmux target recorded"
-    else:
-        pane_id, resolve_error = resolve_pane_target(member.tmux_pane_id)
-        if pane_id is None:
-            error = resolve_error
-        else:
-            pane = peek_pane(pane_id, output_lines if include_output else 1)
-            alive = pane["alive"]
-            error = pane["error"]
-            if include_output:
-                output = pane["output"]
+    tmux = _check_tmux_status(member.tmux_pane_id, include_output, output_lines)
 
     result: dict = {
         "name": agent_name,
-        "alive": alive,
+        "alive": tmux["alive"],
         "pending_from": pending_from,
         "their_unread_count": their_unread_count,
-        "error": error,
+        "error": tmux["error"],
     }
     if include_output:
-        result["output"] = output
+        result["output"] = tmux["output"]
     return result
 
 
 def main():
-    logging.basicConfig(
-        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     mcp.run()
 
 
