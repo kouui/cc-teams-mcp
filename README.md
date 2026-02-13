@@ -24,6 +24,9 @@ Claude Code — project scope (`.mcp.json` in project root) or user scope (`~/.c
         "git+https://github.com/kouui/cc-teams-mcp",
         "claude-teams"
       ],
+      "env": {
+        "CLAUDE_TEAMS_BACKENDS": "claude,codex"
+      },
       "allowedTools": ["*"]
     }
   }
