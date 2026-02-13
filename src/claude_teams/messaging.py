@@ -1,19 +1,14 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timezone
 import json
-import time
-from datetime import datetime, timezone
 from pathlib import Path
+import time
 
 from pydantic import BaseModel
 
 from claude_teams._filelock import file_lock
-from claude_teams.models import (
-    InboxMessage,
-    ShutdownRequest,
-    TaskAssignment,
-    TaskFile,
-)
+from claude_teams.models import InboxMessage, ShutdownRequest, TaskAssignment, TaskFile
 
 TEAMS_DIR = Path.home() / ".claude" / "teams"
 
@@ -23,7 +18,7 @@ def _teams_dir(base_dir: Path | None = None) -> Path:
 
 
 def now_iso() -> str:
-    dt = datetime.now(timezone.utc)
+    dt = datetime.now(UTC)
     return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}Z"
 
 
@@ -78,6 +73,19 @@ def read_inbox(
         return list(all_msgs)
 
 
+def _select_matching_indices(
+    messages: list[InboxMessage],
+    sender_filter: str,
+    unread_only: bool,
+    limit: int | None,
+) -> list[int]:
+    """Return indices of messages matching sender_filter and unread criteria."""
+    indices = [i for i, m in enumerate(messages) if m.from_ == sender_filter and not (unread_only and m.read)]
+    if limit is not None and len(indices) > limit:
+        indices = indices[-limit:]
+    return indices
+
+
 def read_inbox_filtered(
     team_name: str,
     agent_name: str,
@@ -106,41 +114,22 @@ def read_inbox_filtered(
     if not path.exists():
         return []
 
-    if mark_as_read:
-        lock_path = path.parent / ".lock"
-        with file_lock(lock_path):
-            raw_list = json.loads(path.read_text())
-            all_msgs = [InboxMessage.model_validate(entry) for entry in raw_list]
+    if not mark_as_read:
+        all_msgs = [InboxMessage.model_validate(e) for e in json.loads(path.read_text())]
+        indices = _select_matching_indices(all_msgs, sender_filter, unread_only, limit)
+        return [all_msgs[i] for i in indices]
 
-            selected_indices = []
-            for i, m in enumerate(all_msgs):
-                if m.from_ != sender_filter:
-                    continue
-                if unread_only and m.read:
-                    continue
-                selected_indices.append(i)
-
-            if limit is not None and len(selected_indices) > limit:
-                selected_indices = selected_indices[-limit:]
-
-            result = [all_msgs[i] for i in selected_indices]
-            if result:
-                for i in selected_indices:
-                    all_msgs[i].read = True
-                serialized = [m.model_dump(by_alias=True, exclude_none=True) for m in all_msgs]
-                path.write_text(json.dumps(serialized))
-
-            return result
-    else:
-        raw_list = json.loads(path.read_text())
-        all_msgs = [InboxMessage.model_validate(entry) for entry in raw_list]
-
-        filtered = [m for m in all_msgs if m.from_ == sender_filter]
-        if unread_only:
-            filtered = [m for m in filtered if not m.read]
-        if limit is not None and len(filtered) > limit:
-            filtered = filtered[-limit:]
-        return filtered
+    lock_path = path.parent / ".lock"
+    with file_lock(lock_path):
+        all_msgs = [InboxMessage.model_validate(e) for e in json.loads(path.read_text())]
+        indices = _select_matching_indices(all_msgs, sender_filter, unread_only, limit)
+        result = [all_msgs[i] for i in indices]
+        if result:
+            for i in indices:
+                all_msgs[i].read = True
+            serialized = [m.model_dump(by_alias=True, exclude_none=True) for m in all_msgs]
+            path.write_text(json.dumps(serialized))
+        return result
 
 
 def append_message(
