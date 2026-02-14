@@ -27,12 +27,15 @@ class TestInjectMessage:
     def test_calls_tmux_send_keys(self, mock_run: MagicMock) -> None:
         result = inject_message("%42", _msg(text="hello"))
         assert result is True
-        mock_run.assert_called_once()
-        args = mock_run.call_args[0][0]
-        assert args[0:3] == ["tmux", "send-keys", "-t"]
-        assert args[3] == "%42"
-        assert "hello" in args[4]
-        assert args[5] == "Enter"
+        assert mock_run.call_count == 2
+        # First call: send text literally
+        text_args = mock_run.call_args_list[0][0][0]
+        assert text_args[:4] == ["tmux", "send-keys", "-t", "%42"]
+        assert "-l" in text_args
+        assert "hello" in text_args[-1]
+        # Second call: send Enter key
+        enter_args = mock_run.call_args_list[1][0][0]
+        assert enter_args == ["tmux", "send-keys", "-t", "%42", "Enter"]
 
     @patch("claude_teams.claude_side.injector.subprocess.run")
     def test_returns_false_on_failure(self, mock_run: MagicMock) -> None:
@@ -55,13 +58,18 @@ class TestInjectMessages:
         msgs = [_msg(text=f"msg-{i}") for i in range(3)]
         count = inject_messages("%42", msgs)
         assert count == 3
-        assert mock_run.call_count == 3
+        assert mock_run.call_count == 6  # 2 calls per message (text + Enter)
 
     @patch("claude_teams.claude_side.injector.subprocess.run")
     def test_stops_on_failure(self, mock_run: MagicMock) -> None:
         import subprocess
 
-        mock_run.side_effect = [None, subprocess.CalledProcessError(1, ["tmux"], stderr="err"), None]
+        # msg1: text ok, enter ok; msg2: text fails; msg3: skipped
+        mock_run.side_effect = [
+            None,
+            None,  # msg1 text + enter
+            subprocess.CalledProcessError(1, ["tmux"], stderr="err"),  # msg2 text fails
+        ]
         msgs = [_msg(text=f"msg-{i}") for i in range(3)]
         count = inject_messages("%42", msgs)
         assert count == 1  # first succeeded, second failed, third skipped

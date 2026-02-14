@@ -31,8 +31,16 @@ def inject_message(pane_id: str, msg: InboxMessage) -> bool:
     text = format_message_for_injection(msg)
 
     try:
+        # Step 1: Send text literally (-l prevents key name interpretation)
         subprocess.run(
-            ["tmux", "send-keys", "-t", pane_id, text, "Enter"],
+            ["tmux", "send-keys", "-t", pane_id, "-l", text],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        # Step 2: Send Enter key separately (without -l so "Enter" is a key name)
+        subprocess.run(
+            ["tmux", "send-keys", "-t", pane_id, "Enter"],
             capture_output=True,
             text=True,
             check=True,
