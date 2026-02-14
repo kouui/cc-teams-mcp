@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import time
 
 from claude_teams.common.models import InboxMessage
 
@@ -38,6 +39,8 @@ def inject_message(pane_id: str, msg: InboxMessage) -> bool:
             text=True,
             check=True,
         )
+        # Wait for TUI to render the input text before pressing Enter
+        time.sleep(0.5)
         # Step 2: Send Enter key separately (without -l so "Enter" is a key name)
         subprocess.run(
             ["tmux", "send-keys", "-t", pane_id, "Enter"],
