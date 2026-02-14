@@ -64,6 +64,46 @@ def _setup_team(team_name: str, session_id: str = "sess-1"):
     teams.create_team(team_name, session_id=session_id)
 
 
+class TestRegisterExternalAgent:
+    async def test_should_register_agent(self, client: Client):
+        _setup_team("tr1")
+        result = _data(
+            await client.call_tool(
+                "register_external_agent",
+                {"team_name": "tr1", "name": "reviewer"},
+            )
+        )
+        assert result["name"] == "reviewer"
+        assert result["agent_id"] == "reviewer@tr1"
+        # Verify agent is in config
+        config = teams.read_config("tr1")
+        names = [m.name for m in config.members]
+        assert "reviewer" in names
+
+    async def test_should_create_inbox(self, client: Client):
+        _setup_team("tr2")
+        await client.call_tool(
+            "register_external_agent",
+            {"team_name": "tr2", "name": "worker"},
+        )
+        inbox = messaging.inbox_path("tr2", "worker")
+        assert inbox.exists()
+
+    async def test_should_reject_duplicate(self, client: Client):
+        _setup_team("tr3")
+        await client.call_tool(
+            "register_external_agent",
+            {"team_name": "tr3", "name": "dup"},
+        )
+        result = await client.call_tool(
+            "register_external_agent",
+            {"team_name": "tr3", "name": "dup"},
+            raise_on_error=False,
+        )
+        assert result.is_error is True
+        assert "already exists" in result.content[0].text
+
+
 class TestSpawnExternalAgent:
     async def test_should_spawn_external_agent(self, client: Client):
         _setup_team("t1")
