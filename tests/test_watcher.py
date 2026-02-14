@@ -151,6 +151,38 @@ class TestWatcherMessageDelivery:
         msgs = messaging.read_inbox(TEAM, "codex-fail", unread_only=True, mark_as_read=False, base_dir=team_dir)
         assert len(msgs) == 1
 
+    async def test_retries_after_injection_failure(self, team_dir: Path) -> None:
+        """Watcher should retry injection on next poll when inject fails then succeeds."""
+        messaging.ensure_inbox(TEAM, "codex-retry", base_dir=team_dir)
+        call_count = 0
+
+        def fail_then_succeed(pane_id, msgs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return 0  # fail first attempt
+            return len(msgs)  # succeed on retry
+
+        with patch("claude_teams.claude_side.watcher.inject_messages", side_effect=fail_then_succeed):
+            watcher.start_watcher(TEAM, "codex-retry", "%60", base_dir=team_dir)
+            await asyncio.sleep(0.2)
+
+            messaging.send_plain_message(
+                TEAM,
+                "team-lead",
+                "codex-retry",
+                "retry me",
+                summary="test",
+                base_dir=team_dir,
+            )
+            # Wait long enough for at least 2 poll cycles
+            await asyncio.sleep(3.0)
+
+        assert call_count >= 2, f"Expected at least 2 inject attempts, got {call_count}"
+        # Message should be marked as read after successful retry
+        msgs = messaging.read_inbox(TEAM, "codex-retry", unread_only=True, mark_as_read=False, base_dir=team_dir)
+        assert len(msgs) == 0
+
     async def test_ignores_already_read_messages(self, team_dir: Path) -> None:
         """Watcher should not re-inject already read messages."""
         messaging.ensure_inbox(TEAM, "codex3", base_dir=team_dir)

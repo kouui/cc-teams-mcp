@@ -43,7 +43,6 @@ async def _watch_loop(
                 if inbox.exists():
                     current_mtime = inbox.stat().st_mtime
                     if current_mtime > last_mtime:
-                        last_mtime = current_mtime
                         new_msgs = messaging.read_inbox(
                             team_name,
                             agent_name,
@@ -61,6 +60,20 @@ async def _watch_loop(
                             injected = inject_messages(pane_id, new_msgs)
                             if injected > 0:
                                 messaging.mark_messages_as_read(team_name, agent_name, injected, base_dir)
+                            if injected < len(new_msgs):
+                                # Partial/no injection — don't advance mtime so we retry next poll
+                                logger.warning(
+                                    "Only %d/%d message(s) injected for %s@%s, will retry",
+                                    injected,
+                                    len(new_msgs),
+                                    agent_name,
+                                    team_name,
+                                )
+                            else:
+                                last_mtime = current_mtime
+                        else:
+                            # No unread messages — advance mtime
+                            last_mtime = current_mtime
             except asyncio.CancelledError:
                 raise
             except Exception:

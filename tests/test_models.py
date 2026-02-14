@@ -97,14 +97,14 @@ class TestTeammateMember:
             joined_at=1770398210601,
             tmux_pane_id="%34",
             cwd="/tmp/work",
-            backend_type="claude",
+            backend_type="in-process",
             is_active=False,
         )
         data = mate.model_dump(by_alias=True)
         assert data["agentId"] == "worker@my-team"
         assert data["planModeRequired"] is False
         assert data["tmuxPaneId"] == "%34"
-        assert data["backendType"] == "claude"
+        assert data["backendType"] == "in-process"
         assert data["isActive"] is False
 
     def test_defaults(self):
@@ -120,11 +120,11 @@ class TestTeammateMember:
             cwd="/tmp",
         )
         assert mate.plan_mode_required is False
-        assert mate.backend_type == "claude"
+        assert mate.backend_type == "in-process"
         assert mate.is_active is False
         assert mate.subscriptions == []
 
-    def test_backend_type_defaults_to_claude(self):
+    def test_backend_type_defaults_to_in_process(self):
         mate = TeammateMember(
             agent_id="w@t",
             name="w",
@@ -136,9 +136,9 @@ class TestTeammateMember:
             tmux_pane_id="",
             cwd="/tmp",
         )
-        assert mate.backend_type == "claude"
+        assert mate.backend_type == "in-process"
         data = mate.model_dump(by_alias=True)
-        assert data["backendType"] == "claude"
+        assert data["backendType"] == "in-process"
 
     def test_serialization_round_trip_with_codex_backend(self):
         mate = TeammateMember(
@@ -232,7 +232,7 @@ class TestTeamConfig:
                     "tmuxPaneId": "%5",
                     "cwd": "/tmp",
                     "subscriptions": [],
-                    "backendType": "claude",
+                    "backendType": "in-process",
                     "isActive": False,
                 },
             ],

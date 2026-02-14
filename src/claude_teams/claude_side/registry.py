@@ -1,8 +1,9 @@
-"""Mock agent registration for Claude Code's native team config.
+"""External agent registration for Claude Code's native team config.
 
-Registers/unregisters external (non-Claude) agents in the team config
-without spawning a process. This allows Claude Code's native SendMessage
-to write to the agent's inbox, which is later bridged via tmux injection.
+Registers/unregisters external (non-Claude) agents in the team config.
+Agents are written with backendType="in-process" so Claude Code's runtime
+treats them as native teammates (SendMessage writes to their inbox).
+The MCP server tracks which agents are external via an in-memory registry.
 """
 
 from __future__ import annotations
@@ -13,6 +14,15 @@ import time
 from claude_teams.common import messaging, teams
 from claude_teams.common.models import COLOR_PALETTE, TeammateMember
 from claude_teams.common.teams import _VALID_NAME_RE
+
+# In-memory registry: tracks (team_name, agent_name) pairs that are external.
+# Populated at registration time; cleared on unregister or server restart.
+_external_agents: set[tuple[str, str]] = set()
+
+
+def is_external(team_name: str, agent_name: str) -> bool:
+    """Check if an agent is tracked as external in this server's memory."""
+    return (team_name, agent_name) in _external_agents
 
 
 def _next_color(team_name: str, base_dir: Path | None = None) -> str:
@@ -58,7 +68,7 @@ def register_external_agent(
         joined_at=now_ms,
         tmux_pane_id="",
         cwd=cwd or str(Path.cwd()),
-        backend_type="external",
+        backend_type="in-process",
         is_active=False,
     )
 
@@ -66,6 +76,7 @@ def register_external_agent(
     teams.add_member(team_name, member, base_dir)
     messaging.ensure_inbox(team_name, name, base_dir)
 
+    _external_agents.add((team_name, name))
     return member
 
 
@@ -79,4 +90,5 @@ def unregister_external_agent(
     Does NOT delete the inbox file (messages may still be needed for audit).
     Raises ValueError if trying to remove team-lead.
     """
+    _external_agents.discard((team_name, name))
     teams.remove_member(team_name, name, base_dir)

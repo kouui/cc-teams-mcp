@@ -62,8 +62,7 @@ def _format_teammates_section(teammates: list[dict[str, str]]) -> str:
         return "(no other teammates yet)"
     lines = []
     for t in teammates:
-        backend = t.get("backendType", "unknown")
-        lines.append(f"- {t['name']} ({t['agentType']}, {backend})")
+        lines.append(f"- {t['name']} ({t['agentType']})")
     return "\n".join(lines)
 
 
@@ -196,11 +195,12 @@ def spawn_external(
         base_dir=base_dir,
     )
 
+    spawned_pane_id: str | None = None
     try:
         # Step 2: Spawn process in tmux
         config = teams.read_config(team_name, base_dir)
         teammates = [
-            {"name": m.name, "agentType": m.agent_type, "backendType": getattr(m, "backend_type", "claude")}
+            {"name": m.name, "agentType": m.agent_type}
             for m in config.members
             if m.name != name  # exclude self
         ]
@@ -219,22 +219,29 @@ def spawn_external(
             text=True,
             check=True,
         )
-        pane_id = result.stdout.strip()
+        spawned_pane_id = result.stdout.strip()
 
         # Step 3: Update config with pane ID
         config = teams.read_config(team_name, base_dir)
         for m in config.members:
             if isinstance(m, TeammateMember) and m.name == name:
-                m.tmux_pane_id = pane_id
+                m.tmux_pane_id = spawned_pane_id
                 break
         teams.write_config(team_name, config, base_dir)
     except Exception:
-        # Rollback: unregister on failure
+        # Rollback: kill orphan pane (if spawned) and unregister
+        if spawned_pane_id:
+            try:
+                kill_tmux_pane(spawned_pane_id)
+            except Exception:
+                pass
         try:
             unregister_external_agent(team_name, name, base_dir)
         except Exception:
             pass
         raise
+
+    pane_id = spawned_pane_id
 
     member.tmux_pane_id = pane_id
     return member

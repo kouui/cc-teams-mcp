@@ -29,7 +29,7 @@ def _make_teammate(
         joined_at=int(time.time() * 1000),
         tmux_pane_id=pane_id,
         cwd="/tmp",
-        backend_type="external",
+        backend_type="in-process",
     )
 
 

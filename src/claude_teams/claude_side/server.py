@@ -16,8 +16,8 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.lifespan import lifespan
 
 from claude_teams.claude_side import watcher
+from claude_teams.claude_side.registry import is_external, unregister_external_agent
 from claude_teams.claude_side.registry import register_external_agent as _register_agent
-from claude_teams.claude_side.registry import unregister_external_agent
 from claude_teams.claude_side.spawner import BackendType, discover_backend_binaries, kill_tmux_pane, spawn_external
 from claude_teams.claude_side.tmux_introspection import peek_pane, resolve_pane_target
 from claude_teams.common import tasks, teams
@@ -29,11 +29,10 @@ logger = logging.getLogger(__name__)
 @lifespan
 async def app_lifespan(server):
     binaries = discover_backend_binaries()
-    if not binaries:
-        raise FileNotFoundError(
-            "No external agent binary found on PATH. Install at least one supported backend (e.g., Codex CLI 'codex')."
-        )
-    logger.info("Discovered backend binaries: %s", binaries)
+    if binaries:
+        logger.info("Discovered backend binaries: %s", binaries)
+    else:
+        logger.warning("No external agent binary found on PATH. spawn_external_agent will be unavailable.")
 
     try:
         yield {"binaries": binaries}
@@ -66,10 +65,10 @@ def _find_external_teammate(team_name: str, name: str) -> TeammateMember:
         config = teams.read_config(team_name)
     except FileNotFoundError:
         raise ToolError(f"Team {team_name!r} not found")
+    if not is_external(team_name, name):
+        raise ToolError(f"Agent {name!r} is not tracked as an external agent in this server.")
     for m in config.members:
         if isinstance(m, TeammateMember) and m.name == name:
-            if m.backend_type == "claude":
-                raise ToolError(f"Agent {name!r} is a native Claude teammate — use Claude Code's native tools instead.")
             return m
     raise ToolError(f"External agent {name!r} not found in team {team_name!r}")
 
@@ -84,8 +83,11 @@ def register_external_agent(
     """Register a non-Claude agent in the team config without spawning a process.
 
     Creates the agent's entry in config.json and its inbox file so that
-    Claude Code's native SendMessage can write to it. Use spawn_external_agent
-    to actually start the agent process after registration.
+    Claude Code's native SendMessage can write to it.
+
+    Note: spawn_external_agent already includes registration — use this tool
+    only when you need to register an agent without immediately starting it
+    (e.g., pre-provisioning). Do NOT call both register and spawn for the same agent.
     """
     try:
         member = _register_agent(

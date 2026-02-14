@@ -143,13 +143,13 @@ Currently supported: **Codex CLI** (`codex`).
 
 Codex teammates are spawned in tmux with `--dangerously-bypass-approvals-and-sandbox --no-alt-screen`. They receive a prompt wrapper with team context (members list, MCP-B tool usage, communication rules).
 
-Adding a new backend requires entries in three dicts in `spawner.py`: `BACKEND_BINARY_NAMES`, `_PROMPT_WRAPPERS`, `_SPAWN_COMMAND_BUILDERS`.
+Adding a new backend requires extending `BackendType` and adding `elif` branches in `build_spawn_command`, `wrap_prompt`, and `discover_backend_binaries` in `spawner.py`.
 
 ## Development
 
 ```bash
 uv sync                          # install dependencies
-uv run pytest tests/ -x          # run tests (180 tests)
+uv run pytest tests/ -x          # run tests
 uv run ruff check src/           # lint
 uv run pyright src/              # type check
 ```

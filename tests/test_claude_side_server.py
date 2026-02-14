@@ -9,6 +9,7 @@ import time
 from fastmcp import Client
 import pytest
 
+from claude_teams.claude_side.registry import _external_agents
 from claude_teams.claude_side.server import mcp
 from claude_teams.common import messaging, tasks, teams
 from claude_teams.common.models import TeammateMember
@@ -29,8 +30,15 @@ def _make_teammate(
         joined_at=int(time.time() * 1000),
         tmux_pane_id=pane_id,
         cwd="/tmp",
-        backend_type="external",
+        backend_type="in-process",
     )
+
+
+@pytest.fixture(autouse=True)
+def _clear_external_registry():
+    _external_agents.clear()
+    yield
+    _external_agents.clear()
 
 
 @pytest.fixture
@@ -150,6 +158,26 @@ class TestSpawnExternalAgent:
         assert result.is_error is True
         assert "cwd" in result.content[0].text.lower()
 
+    async def test_register_then_spawn_same_name_fails(self, client: Client):
+        """Calling register then spawn for the same agent name should fail with duplicate error."""
+        _setup_team("t4")
+        await client.call_tool(
+            "register_external_agent",
+            {"team_name": "t4", "name": "worker"},
+        )
+        result = await client.call_tool(
+            "spawn_external_agent",
+            {
+                "team_name": "t4",
+                "name": "worker",
+                "prompt": "do stuff",
+                "cwd": "/tmp",
+            },
+            raise_on_error=False,
+        )
+        assert result.is_error is True
+        assert "already exists" in result.content[0].text
+
 
 class TestCheckExternalAgent:
     async def test_should_return_error_for_unknown_agent(self, client: Client):
@@ -165,6 +193,7 @@ class TestCheckExternalAgent:
     async def test_should_return_not_alive_for_empty_pane_id(self, client: Client):
         _setup_team("tca2")
         teams.add_member("tca2", _make_teammate("worker", "tca2", pane_id=""))
+        _external_agents.add(("tca2", "worker"))
         result = _data(
             await client.call_tool(
                 "check_external_agent",
@@ -204,6 +233,7 @@ class TestShutdownExternalAgent:
         )
         _setup_team("tsa3")
         teams.add_member("tsa3", _make_teammate("worker", "tsa3", pane_id="%77"))
+        _external_agents.add(("tsa3", "worker"))
         result = await client.call_tool(
             "shutdown_external_agent",
             {"team_name": "tsa3", "agent_name": "worker"},

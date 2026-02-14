@@ -44,7 +44,7 @@ class TeammateMember(BaseModel):
     tmux_pane_id: str = Field(alias="tmuxPaneId")
     cwd: str
     subscriptions: list = Field(default_factory=list)
-    backend_type: str = Field(alias="backendType", default="claude")
+    backend_type: str = Field(alias="backendType", default="in-process")
     is_active: bool = Field(alias="isActive", default=False)
 
 

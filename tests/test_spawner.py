@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from claude_teams.claude_side.registry import _next_color
+from claude_teams.claude_side.registry import _external_agents, _next_color
 from claude_teams.claude_side.spawner import (
     build_spawn_command,
     discover_backend_binaries,
@@ -17,6 +17,13 @@ from claude_teams.common.models import COLOR_PALETTE, TeammateMember
 
 TEAM = "test-team"
 BINARIES = {"codex": "/usr/local/bin/codex"}
+
+
+@pytest.fixture(autouse=True)
+def _clear_external_registry():
+    _external_agents.clear()
+    yield
+    _external_agents.clear()
 
 
 @pytest.fixture
@@ -41,7 +48,7 @@ def _make_member(
         joined_at=0,
         tmux_pane_id="",
         cwd=cwd,
-        backend_type="external",
+        backend_type="in-process",
     )
 
 
@@ -186,6 +193,43 @@ class TestSpawnExternal:
         assert "broken-worker" not in names
 
     @patch("claude_teams.claude_side.spawner.subprocess")
+    def test_should_kill_orphan_pane_when_config_write_fails(self, mock_subprocess: MagicMock, team_dir: Path) -> None:
+        """If tmux spawn succeeds but config write-back fails, the pane must be killed."""
+        mock_subprocess.run.return_value.stdout = "%99\n"
+
+        killed_panes: list[str] = []
+
+        def track_kill(pane_id: str) -> None:
+            killed_panes.append(pane_id)
+
+        # Let registration write_config succeed, then fail on pane ID update (2nd call)
+        original_write = teams.write_config
+        call_count = 0
+
+        def fail_on_second_write(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                raise OSError("disk full")
+            return original_write(*args, **kwargs)
+
+        with (
+            patch("claude_teams.claude_side.spawner.kill_tmux_pane", side_effect=track_kill),
+            patch.object(teams, "write_config", side_effect=fail_on_second_write),
+        ):
+            with pytest.raises(OSError, match="disk full"):
+                spawn_external(
+                    TEAM,
+                    "orphan-worker",
+                    "Do stuff",
+                    "codex",
+                    BINARIES,
+                    base_dir=team_dir,
+                )
+
+        assert "%99" in killed_panes
+
+    @patch("claude_teams.claude_side.spawner.subprocess")
     def test_codex_should_use_prompt_wrapper(self, mock_subprocess: MagicMock, team_dir: Path) -> None:
         mock_subprocess.run.return_value.stdout = "%42\n"
         spawn_external(
@@ -203,7 +247,7 @@ class TestSpawnExternal:
         assert "send_message" in cmd_str
 
     @patch("claude_teams.claude_side.spawner.subprocess")
-    def test_member_has_external_backend_type(self, mock_subprocess: MagicMock, team_dir: Path) -> None:
+    def test_member_has_in_process_backend_type(self, mock_subprocess: MagicMock, team_dir: Path) -> None:
         mock_subprocess.run.return_value.stdout = "%42\n"
         member = spawn_external(
             TEAM,
@@ -213,7 +257,7 @@ class TestSpawnExternal:
             BINARIES,
             base_dir=team_dir,
         )
-        assert member.backend_type == "external"
+        assert member.backend_type == "in-process"
 
 
 class TestKillTmuxPane:

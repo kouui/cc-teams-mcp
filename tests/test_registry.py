@@ -6,11 +6,23 @@ from pathlib import Path
 
 import pytest
 
-from claude_teams.claude_side.registry import register_external_agent, unregister_external_agent
+from claude_teams.claude_side.registry import (
+    _external_agents,
+    is_external,
+    register_external_agent,
+    unregister_external_agent,
+)
 from claude_teams.common import messaging, teams
 from claude_teams.common.models import TeammateMember
 
 TEAM = "test-team"
+
+
+@pytest.fixture(autouse=True)
+def _clear_external_registry():
+    _external_agents.clear()
+    yield
+    _external_agents.clear()
 
 
 @pytest.fixture
@@ -24,7 +36,8 @@ class TestRegisterExternalAgent:
         member = register_external_agent(TEAM, "reviewer", base_dir=team_dir)
         assert member.name == "reviewer"
         assert member.agent_id == "reviewer@test-team"
-        assert member.backend_type == "external"
+        assert member.backend_type == "in-process"
+        assert is_external(TEAM, "reviewer")
 
         config = teams.read_config(TEAM, base_dir=team_dir)
         names = [m.name for m in config.members]
@@ -81,11 +94,13 @@ class TestRegisterExternalAgent:
 class TestUnregisterExternalAgent:
     def test_removes_member_from_config(self, team_dir: Path) -> None:
         register_external_agent(TEAM, "temp", base_dir=team_dir)
+        assert is_external(TEAM, "temp")
         unregister_external_agent(TEAM, "temp", base_dir=team_dir)
 
         config = teams.read_config(TEAM, base_dir=team_dir)
         names = [m.name for m in config.members]
         assert "temp" not in names
+        assert not is_external(TEAM, "temp")
 
     def test_rejects_removing_team_lead(self, team_dir: Path) -> None:
         with pytest.raises(ValueError, match="team-lead"):
