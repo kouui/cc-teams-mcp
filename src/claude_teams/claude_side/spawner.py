@@ -36,16 +36,24 @@ BACKEND_BINARY_NAMES: dict[str, str] = {
 
 _CODEX_PROMPT_WRAPPER = """\
 You are team member '{name}' on team '{team_name}'.
+Your role: {agent_type}
 
-You have MCP tools from the claude-teams-external server for team coordination:
-- send_message(team_name="{team_name}", sender="{name}", recipient="<name>", content="...", summary="...") - Send message to any teammate
-- task_list(team_name="{team_name}") - View team tasks
-- task_update(team_name="{team_name}", task_id="...", status="...") - Update task status
-- task_get(team_name="{team_name}", task_id="...") - Get task details
-- task_create(team_name="{team_name}", subject="...", description="...") - Create a new task
+## Team Members
+{teammates_section}
 
-Messages from other agents will appear as user input in format: [Message from <name>]: <content>
-When you receive a message, respond using send_message tool.
+## Communication
+Use MCP tools from the 'claude-teams-external' server:
+- send_message(team_name="{team_name}", sender="{name}", recipient="<name>", content="...", summary="...") — Send a message to any teammate
+- task_list(team_name="{team_name}") — View team tasks
+- task_update(team_name="{team_name}", task_id="...", status="...") — Update task status
+- task_get(team_name="{team_name}", task_id="...") — Get task details
+- task_create(team_name="{team_name}", subject="...", description="...") — Create a new task
+
+## Rules
+1. Messages from other agents will appear as user input in format: [Message from <name>]: <content>
+2. When you receive a message, respond using send_message tool
+3. When assigned a task, update its status to "in_progress" when starting and "completed" when done
+4. Report progress to team-lead periodically via send_message
 
 ---
 
@@ -56,10 +64,43 @@ _PROMPT_WRAPPERS: dict[str, str] = {
 }
 
 
-def wrap_prompt(backend_type: BackendType, name: str, team_name: str, prompt: str) -> str:
-    """Wrap a raw prompt with backend-specific team context."""
+def _format_teammates_section(teammates: list[dict[str, str]]) -> str:
+    """Format the team members section for the prompt.
+
+    Args:
+        teammates: List of dicts with keys: name, agentType, backendType.
+    """
+    if not teammates:
+        return "(no other teammates yet)"
+    lines = []
+    for t in teammates:
+        backend = t.get("backendType", "unknown")
+        lines.append(f"- {t['name']} ({t['agentType']}, {backend})")
+    return "\n".join(lines)
+
+
+def wrap_prompt(
+    backend_type: BackendType,
+    name: str,
+    team_name: str,
+    prompt: str,
+    agent_type: str = "general-purpose",
+    teammates: list[dict[str, str]] | None = None,
+) -> str:
+    """Wrap a raw prompt with backend-specific team context.
+
+    Args:
+        teammates: List of teammate info dicts. If None, section shows "(no other teammates yet)".
+    """
     template = _PROMPT_WRAPPERS[backend_type]
-    return template.format(name=name, team_name=team_name, prompt=prompt)
+    teammates_section = _format_teammates_section(teammates or [])
+    return template.format(
+        name=name,
+        team_name=team_name,
+        agent_type=agent_type,
+        teammates_section=teammates_section,
+        prompt=prompt,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +238,21 @@ def spawn_external(
         messaging.append_message(team_name, name, initial_msg, base_dir)
 
         # Step 3: Spawn process in tmux
-        wrapped = wrap_prompt(backend_type, name, team_name, prompt)
+        # Read current teammates for prompt context
+        config = teams.read_config(team_name, base_dir)
+        teammates = [
+            {"name": m.name, "agentType": m.agent_type, "backendType": getattr(m, "backend_type", "claude")}
+            for m in config.members
+            if m.name != name  # exclude self
+        ]
+        wrapped = wrap_prompt(
+            backend_type,
+            name,
+            team_name,
+            prompt,
+            agent_type=subagent_type,
+            teammates=teammates,
+        )
         cmd = build_spawn_command(backend_type, binary, wrapped, resolved_cwd)
         result = subprocess.run(
             build_tmux_spawn_args(cmd, name),
