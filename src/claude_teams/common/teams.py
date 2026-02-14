@@ -2,20 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 import re
 import shutil
 import sys
 import tempfile
 import time
-from pathlib import Path
 
-from claude_teams.models import (
-    LeadMember,
-    TeamConfig,
-    TeamCreateResult,
-    TeamDeleteResult,
-    TeammateMember,
-)
+from claude_teams.common.models import LeadMember, TeamConfig, TeamCreateResult, TeamDeleteResult, TeammateMember
 
 CLAUDE_DIR = Path.home() / ".claude"
 TEAMS_DIR = CLAUDE_DIR / "teams"

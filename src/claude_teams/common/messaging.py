@@ -7,8 +7,8 @@ import time
 
 from pydantic import BaseModel
 
-from claude_teams._filelock import file_lock
-from claude_teams.models import InboxMessage, ShutdownRequest, TaskAssignment, TaskFile
+from claude_teams.common._filelock import file_lock
+from claude_teams.common.models import InboxMessage, ShutdownRequest, TaskAssignment, TaskFile
 
 TEAMS_DIR = Path.home() / ".claude" / "teams"
 
