@@ -40,8 +40,8 @@ async def client(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(tasks, "TASKS_DIR", tmp_path / "tasks")
     monkeypatch.setattr(messaging, "TEAMS_DIR", tmp_path / "teams")
     monkeypatch.setattr(
-        "claude_teams.claude_side.server.discover_harness_binary",
-        lambda name: "/usr/bin/echo" if name == "codex" else None,
+        "claude_teams.claude_side.server.discover_backend_binaries",
+        lambda: {"codex": "/usr/bin/echo"},
     )
     monkeypatch.setattr(
         "claude_teams.claude_side.spawner.subprocess.run",

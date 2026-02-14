@@ -5,10 +5,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from claude_teams.claude_side.registry import _next_color
 from claude_teams.claude_side.spawner import (
-    assign_color,
-    build_codex_spawn_command,
-    discover_harness_binary,
+    build_spawn_command,
+    discover_backend_binaries,
     kill_tmux_pane,
     spawn_external,
 )
@@ -16,6 +16,7 @@ from claude_teams.common import messaging, teams
 from claude_teams.common.models import COLOR_PALETTE, TeammateMember
 
 TEAM = "test-team"
+BINARIES = {"codex": "/usr/local/bin/codex"}
 
 
 @pytest.fixture
@@ -44,9 +45,9 @@ def _make_member(
     )
 
 
-class TestAssignColor:
+class TestNextColor:
     def test_first_teammate_is_blue(self, team_dir: Path) -> None:
-        color = assign_color(TEAM, base_dir=team_dir)
+        color = _next_color(TEAM, base_dir=team_dir)
         assert color == "blue"
 
     def test_cycles(self, team_dir: Path) -> None:
@@ -54,20 +55,20 @@ class TestAssignColor:
             member = _make_member(f"agent-{i}", color=COLOR_PALETTE[i])
             teams.add_member(TEAM, member, base_dir=team_dir)
 
-        color = assign_color(TEAM, base_dir=team_dir)
+        color = _next_color(TEAM, base_dir=team_dir)
         assert color == COLOR_PALETTE[0]
 
 
-class TestBuildCodexSpawnCommand:
-    def test_format(self) -> None:
-        cmd = build_codex_spawn_command("/usr/local/bin/codex", "Do research", "/tmp/work")
+class TestBuildSpawnCommand:
+    def test_codex_format(self) -> None:
+        cmd = build_spawn_command("codex", "/usr/local/bin/codex", "Do research", "/tmp/work")
         assert "/usr/local/bin/codex" in cmd
         assert "--dangerously-bypass-approvals-and-sandbox" in cmd
         assert "--no-alt-screen" in cmd
         assert "cd /tmp/work" in cmd
 
-    def test_should_not_contain_claude_flags(self) -> None:
-        cmd = build_codex_spawn_command("/usr/local/bin/codex", "Do research", "/tmp")
+    def test_codex_should_not_contain_claude_flags(self) -> None:
+        cmd = build_spawn_command("codex", "/usr/local/bin/codex", "Do research", "/tmp")
         assert "CLAUDECODE" not in cmd
         assert "--agent-id" not in cmd
         assert "--team-name" not in cmd
@@ -76,23 +77,23 @@ class TestBuildCodexSpawnCommand:
 class TestSpawnExternalNameValidation:
     def test_should_reject_empty_name(self, team_dir: Path) -> None:
         with pytest.raises(ValueError, match="Invalid"):
-            spawn_external(TEAM, "", "prompt", "/bin/codex", base_dir=team_dir)
+            spawn_external(TEAM, "", "prompt", "codex", BINARIES, base_dir=team_dir)
 
     def test_should_reject_name_with_special_chars(self, team_dir: Path) -> None:
         with pytest.raises(ValueError, match="Invalid"):
-            spawn_external(TEAM, "agent!@#", "prompt", "/bin/codex", base_dir=team_dir)
+            spawn_external(TEAM, "agent!@#", "prompt", "codex", BINARIES, base_dir=team_dir)
 
     def test_should_reject_name_exceeding_64_chars(self, team_dir: Path) -> None:
         with pytest.raises(ValueError, match="too long"):
-            spawn_external(TEAM, "a" * 65, "prompt", "/bin/codex", base_dir=team_dir)
+            spawn_external(TEAM, "a" * 65, "prompt", "codex", BINARIES, base_dir=team_dir)
 
     def test_should_reject_reserved_name_team_lead(self, team_dir: Path) -> None:
         with pytest.raises(ValueError, match="reserved"):
-            spawn_external(TEAM, "team-lead", "prompt", "/bin/codex", base_dir=team_dir)
+            spawn_external(TEAM, "team-lead", "prompt", "codex", BINARIES, base_dir=team_dir)
 
-    def test_should_reject_when_codex_binary_missing(self, team_dir: Path) -> None:
+    def test_should_reject_when_binary_missing(self, team_dir: Path) -> None:
         with pytest.raises(ValueError, match="codex"):
-            spawn_external(TEAM, "worker", "prompt", None, base_dir=team_dir)
+            spawn_external(TEAM, "worker", "prompt", "codex", {}, base_dir=team_dir)
 
 
 class TestSpawnExternal:
@@ -103,7 +104,8 @@ class TestSpawnExternal:
             TEAM,
             "researcher",
             "Do research",
-            "/usr/local/bin/codex",
+            "codex",
+            BINARIES,
             base_dir=team_dir,
         )
         config = teams.read_config(TEAM, base_dir=team_dir)
@@ -117,7 +119,8 @@ class TestSpawnExternal:
             TEAM,
             "researcher",
             "Do research",
-            "/usr/local/bin/codex",
+            "codex",
+            BINARIES,
             base_dir=team_dir,
         )
         msgs = messaging.read_inbox(TEAM, "researcher", base_dir=team_dir)
@@ -132,7 +135,8 @@ class TestSpawnExternal:
             TEAM,
             "researcher",
             "Do research",
-            "/usr/local/bin/codex",
+            "codex",
+            BINARIES,
             base_dir=team_dir,
         )
         assert member.tmux_pane_id == "%42"
@@ -153,7 +157,8 @@ class TestSpawnExternal:
             TEAM,
             "window-worker",
             "Do research",
-            "/usr/local/bin/codex",
+            "codex",
+            BINARIES,
             base_dir=team_dir,
         )
         assert member.tmux_pane_id == "@42"
@@ -172,7 +177,8 @@ class TestSpawnExternal:
                 TEAM,
                 "broken-worker",
                 "Do research",
-                "/usr/local/bin/codex",
+                "codex",
+                BINARIES,
                 base_dir=team_dir,
             )
 
@@ -187,7 +193,8 @@ class TestSpawnExternal:
             TEAM,
             "codex-worker",
             "Analyze code",
-            "/usr/local/bin/codex",
+            "codex",
+            BINARIES,
             base_dir=team_dir,
         )
         call_args = mock_subprocess.run.call_args[0][0]
@@ -203,7 +210,8 @@ class TestSpawnExternal:
             TEAM,
             "worker",
             "Do stuff",
-            "/usr/local/bin/codex",
+            "codex",
+            BINARIES,
             base_dir=team_dir,
         )
         assert member.backend_type == "external"
@@ -221,14 +229,15 @@ class TestKillTmuxPane:
         mock_subprocess.run.assert_called_once_with(["tmux", "kill-window", "-t", "@99"], check=False)
 
 
-class TestDiscoverHarnessBinary:
+class TestDiscoverBackendBinaries:
     @patch("claude_teams.claude_side.spawner.shutil.which")
     def test_should_find_codex_binary(self, mock_which: MagicMock) -> None:
         mock_which.return_value = "/usr/local/bin/codex"
-        assert discover_harness_binary("codex") == "/usr/local/bin/codex"
-        mock_which.assert_called_once_with("codex")
+        result = discover_backend_binaries()
+        assert result == {"codex": "/usr/local/bin/codex"}
 
     @patch("claude_teams.claude_side.spawner.shutil.which")
-    def test_should_return_none_when_not_found(self, mock_which: MagicMock) -> None:
+    def test_should_return_empty_when_not_found(self, mock_which: MagicMock) -> None:
         mock_which.return_value = None
-        assert discover_harness_binary("codex") is None
+        result = discover_backend_binaries()
+        assert result == {}
