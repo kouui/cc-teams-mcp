@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 _watchers: dict[tuple[str, str], asyncio.Task] = {}
 
 # Poll interval in seconds
-_POLL_INTERVAL = 0.5
+_POLL_INTERVAL = 1.0
 
 
 async def _watch_loop(
@@ -48,7 +48,7 @@ async def _watch_loop(
                             team_name,
                             agent_name,
                             unread_only=True,
-                            mark_as_read=True,
+                            mark_as_read=False,
                             base_dir=base_dir,
                         )
                         if new_msgs:
@@ -58,7 +58,9 @@ async def _watch_loop(
                                 agent_name,
                                 team_name,
                             )
-                            inject_messages(pane_id, new_msgs)
+                            injected = inject_messages(pane_id, new_msgs)
+                            if injected > 0:
+                                messaging.mark_messages_as_read(team_name, agent_name, injected, base_dir)
             except asyncio.CancelledError:
                 raise
             except Exception:

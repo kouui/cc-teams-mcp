@@ -12,6 +12,7 @@ import time
 
 from claude_teams.common import messaging, teams
 from claude_teams.common.models import COLOR_PALETTE, TeammateMember
+from claude_teams.common.teams import _VALID_NAME_RE
 
 
 def _next_color(team_name: str, base_dir: Path | None = None) -> str:
@@ -36,8 +37,14 @@ def register_external_agent(
     tmuxPaneId="" (no running process yet). Its inbox file is created
     so Claude Code's SendMessage can write to it immediately.
 
-    Raises ValueError if the name already exists in the team.
+    Raises ValueError if the name already exists in the team or is invalid.
     """
+    if not _VALID_NAME_RE.match(name):
+        raise ValueError(f"Invalid agent name: {name!r}. Use only letters, numbers, hyphens, underscores.")
+    if len(name) > 64:
+        raise ValueError(f"Agent name too long ({len(name)} chars, max 64)")
+    if name == "team-lead":
+        raise ValueError("Agent name 'team-lead' is reserved")
     color = _next_color(team_name, base_dir)
     now_ms = int(time.time() * 1000)
 

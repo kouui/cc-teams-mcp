@@ -61,6 +61,22 @@ class TestRegisterExternalAgent:
         with pytest.raises(FileNotFoundError):
             register_external_agent("no-such-team", "agent", base_dir=team_dir)
 
+    def test_rejects_invalid_name(self, team_dir: Path) -> None:
+        with pytest.raises(ValueError, match="Invalid"):
+            register_external_agent(TEAM, "bad/../name", base_dir=team_dir)
+
+    def test_rejects_empty_name(self, team_dir: Path) -> None:
+        with pytest.raises(ValueError, match="Invalid"):
+            register_external_agent(TEAM, "", base_dir=team_dir)
+
+    def test_rejects_name_too_long(self, team_dir: Path) -> None:
+        with pytest.raises(ValueError, match="too long"):
+            register_external_agent(TEAM, "a" * 65, base_dir=team_dir)
+
+    def test_rejects_reserved_name(self, team_dir: Path) -> None:
+        with pytest.raises(ValueError, match="reserved"):
+            register_external_agent(TEAM, "team-lead", base_dir=team_dir)
+
 
 class TestUnregisterExternalAgent:
     def test_removes_member_from_config(self, team_dir: Path) -> None:

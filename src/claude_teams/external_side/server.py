@@ -33,17 +33,6 @@ mcp = FastMCP(
 )
 
 
-def _content_metadata(content: str, sender: str) -> str:
-    """Append sender signature and reply reminder to outgoing message content."""
-    return (
-        f"{content}\n\n"
-        f"<system_reminder>"
-        f"This message was sent from {sender}. "
-        f"Use your send_message tool to respond."
-        f"</system_reminder>"
-    )
-
-
 @mcp.tool
 def send_message(
     team_name: str,
@@ -51,6 +40,7 @@ def send_message(
     recipient: str,
     content: str,
     summary: str,
+    cc_team_lead: bool = True,
 ) -> dict:
     """Send a message to any team member.
 
@@ -64,6 +54,8 @@ def send_message(
         recipient: Target agent name (e.g., 'team-lead', or another teammate).
         content: The message content.
         summary: Brief summary of the message.
+        cc_team_lead: If True (default), auto-CC team-lead when non-lead agents
+            message each other directly.
     """
     if not content:
         raise ToolError("Message content must not be empty")
@@ -87,21 +79,20 @@ def send_message(
     if recipient not in member_names:
         raise ToolError(f"Recipient {recipient!r} is not a member of team {team_name!r}")
 
-    enriched = _content_metadata(content, sender)
     messaging.send_plain_message(
         team_name,
         sender,
         recipient,
-        enriched,
+        content,
         summary=summary,
     )
     # CC team-lead when non-lead agents message each other directly
-    if sender != "team-lead" and recipient != "team-lead":
+    if cc_team_lead and sender != "team-lead" and recipient != "team-lead":
         messaging.send_plain_message(
             team_name,
             sender,
             "team-lead",
-            enriched,
+            content,
             summary=f"[CC {sender}->{recipient}] {summary}",
         )
     return SendMessageResult(

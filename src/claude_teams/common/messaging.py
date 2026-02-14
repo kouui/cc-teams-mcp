@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 import json
 from pathlib import Path
-import time
-
-from pydantic import BaseModel
 
 from claude_teams.common._filelock import file_lock
-from claude_teams.common.models import InboxMessage, ShutdownRequest, TaskAssignment, TaskFile
+from claude_teams.common.models import InboxMessage
 
 TEAMS_DIR = Path.home() / ".claude" / "teams"
 
@@ -73,63 +70,34 @@ def read_inbox(
         return list(all_msgs)
 
 
-def _select_matching_indices(
-    messages: list[InboxMessage],
-    sender_filter: str,
-    unread_only: bool,
-    limit: int | None,
-) -> list[int]:
-    """Return indices of messages matching sender_filter and unread criteria."""
-    indices = [i for i, m in enumerate(messages) if m.from_ == sender_filter and not (unread_only and m.read)]
-    if limit is not None and len(indices) > limit:
-        indices = indices[-limit:]
-    return indices
-
-
-def read_inbox_filtered(
+def mark_messages_as_read(
     team_name: str,
     agent_name: str,
-    sender_filter: str,
-    unread_only: bool = True,
-    mark_as_read: bool = True,
-    limit: int | None = None,
+    count: int,
     base_dir: Path | None = None,
-) -> list[InboxMessage]:
-    """Read inbox messages filtered by sender.
+) -> None:
+    """Mark the first `count` unread messages as read.
 
-    When mark_as_read=True, only messages matching the sender_filter
-    (and unread_only criteria) are marked as read. Other messages in
-    the inbox are left untouched.
-
-    Args:
-        team_name: Team name.
-        agent_name: Whose inbox to read (e.g. "team-lead").
-        sender_filter: Only return messages where from_ == sender_filter.
-        unread_only: If True, skip already-read messages.
-        mark_as_read: If True, mark returned messages as read on disk.
-        limit: Max messages to return (newest N if set). Returns chronological order.
-        base_dir: Override base directory for testing.
+    Used after successful injection to avoid marking messages as read
+    before they are actually delivered.
     """
     path = inbox_path(team_name, agent_name, base_dir)
     if not path.exists():
-        return []
-
-    if not mark_as_read:
-        all_msgs = [InboxMessage.model_validate(e) for e in json.loads(path.read_text())]
-        indices = _select_matching_indices(all_msgs, sender_filter, unread_only, limit)
-        return [all_msgs[i] for i in indices]
-
+        return
     lock_path = path.parent / ".lock"
     with file_lock(lock_path):
-        all_msgs = [InboxMessage.model_validate(e) for e in json.loads(path.read_text())]
-        indices = _select_matching_indices(all_msgs, sender_filter, unread_only, limit)
-        result = [all_msgs[i] for i in indices]
-        if result:
-            for i in indices:
-                all_msgs[i].read = True
+        raw_list = json.loads(path.read_text())
+        all_msgs = [InboxMessage.model_validate(entry) for entry in raw_list]
+        marked = 0
+        for m in all_msgs:
+            if marked >= count:
+                break
+            if not m.read:
+                m.read = True
+                marked += 1
+        if marked:
             serialized = [m.model_dump(by_alias=True, exclude_none=True) for m in all_msgs]
             path.write_text(json.dumps(serialized))
-        return result
 
 
 def append_message(
@@ -165,55 +133,3 @@ def send_plain_message(
         color=color,
     )
     append_message(team_name, to_name, msg, base_dir)
-
-
-def send_structured_message(
-    team_name: str,
-    from_name: str,
-    to_name: str,
-    payload: BaseModel,
-    color: str | None = None,
-    base_dir: Path | None = None,
-) -> None:
-    serialized = payload.model_dump_json(by_alias=True)
-    msg = InboxMessage(
-        from_=from_name,
-        text=serialized,
-        timestamp=now_iso(),
-        read=False,
-        color=color,
-    )
-    append_message(team_name, to_name, msg, base_dir)
-
-
-def send_task_assignment(
-    team_name: str,
-    task: TaskFile,
-    assigned_by: str,
-    base_dir: Path | None = None,
-) -> None:
-    payload = TaskAssignment(
-        task_id=task.id,
-        subject=task.subject,
-        description=task.description,
-        assigned_by=assigned_by,
-        timestamp=now_iso(),
-    )
-    send_structured_message(team_name, assigned_by, task.owner, payload, base_dir=base_dir)
-
-
-def send_shutdown_request(
-    team_name: str,
-    recipient: str,
-    reason: str = "",
-    base_dir: Path | None = None,
-) -> str:
-    request_id = f"shutdown-{int(time.time() * 1000)}@{recipient}"
-    payload = ShutdownRequest(
-        request_id=request_id,
-        from_="team-lead",
-        reason=reason,
-        timestamp=now_iso(),
-    )
-    send_structured_message(team_name, "team-lead", recipient, payload, base_dir=base_dir)
-    return request_id

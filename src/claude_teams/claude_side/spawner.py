@@ -1,8 +1,7 @@
 """Spawner for external (non-Claude) agent instances in tmux.
 
-Supports multiple backend types. Currently implemented: codex.
-To add a new backend, add entries to BACKEND_BINARY_NAMES, _PROMPT_WRAPPERS,
-and _SPAWN_COMMAND_BUILDERS.
+Currently supports codex backend. To add a new backend, extend BackendType
+and add an elif branch in build_spawn_command / wrap_prompt / discover_backend_binaries.
 """
 
 from __future__ import annotations
@@ -15,8 +14,8 @@ import subprocess
 from typing import Literal
 
 from claude_teams.claude_side.registry import register_external_agent, unregister_external_agent
-from claude_teams.common import messaging, teams
-from claude_teams.common.models import InboxMessage, TeammateMember
+from claude_teams.common import teams
+from claude_teams.common.models import TeammateMember
 from claude_teams.common.teams import _VALID_NAME_RE
 
 # ---------------------------------------------------------------------------
@@ -25,16 +24,13 @@ from claude_teams.common.teams import _VALID_NAME_RE
 
 BackendType = Literal["codex"]
 
-# Binary name to search for on PATH, keyed by backend type
-BACKEND_BINARY_NAMES: dict[str, str] = {
-    "codex": "codex",
-}
+_CODEX_BINARY_NAME = "codex"
 
 # ---------------------------------------------------------------------------
-# Prompt wrappers per backend
+# Prompt template
 # ---------------------------------------------------------------------------
 
-_CODEX_PROMPT_WRAPPER = """\
+_CODEX_PROMPT_TEMPLATE = """\
 You are team member '{name}' on team '{team_name}'.
 Your role: {agent_type}
 
@@ -59,17 +55,9 @@ Use MCP tools from the 'claude-teams-external' server:
 
 {prompt}"""
 
-_PROMPT_WRAPPERS: dict[str, str] = {
-    "codex": _CODEX_PROMPT_WRAPPER,
-}
-
 
 def _format_teammates_section(teammates: list[dict[str, str]]) -> str:
-    """Format the team members section for the prompt.
-
-    Args:
-        teammates: List of dicts with keys: name, agentType, backendType.
-    """
+    """Format the team members section for the prompt."""
     if not teammates:
         return "(no other teammates yet)"
     lines = []
@@ -87,12 +75,11 @@ def wrap_prompt(
     agent_type: str = "general-purpose",
     teammates: list[dict[str, str]] | None = None,
 ) -> str:
-    """Wrap a raw prompt with backend-specific team context.
-
-    Args:
-        teammates: List of teammate info dicts. If None, section shows "(no other teammates yet)".
-    """
-    template = _PROMPT_WRAPPERS[backend_type]
+    """Wrap a raw prompt with team context for the given backend."""
+    if backend_type == "codex":
+        template = _CODEX_PROMPT_TEMPLATE
+    else:
+        raise ValueError(f"Unknown backend type: {backend_type!r}")
     teammates_section = _format_teammates_section(teammates or [])
     return template.format(
         name=name,
@@ -104,29 +91,21 @@ def wrap_prompt(
 
 
 # ---------------------------------------------------------------------------
-# Spawn command builders per backend
+# Spawn command builders
 # ---------------------------------------------------------------------------
-
-
-def _build_codex_command(binary: str, prompt: str, cwd: str) -> str:
-    return (
-        f"cd {shlex.quote(cwd)} && "
-        f"{shlex.quote(binary)} "
-        f"--dangerously-bypass-approvals-and-sandbox "
-        f"--no-alt-screen "
-        f"{shlex.quote(prompt)}"
-    )
-
-
-_SPAWN_COMMAND_BUILDERS: dict[str, type[object] | object] = {
-    "codex": _build_codex_command,
-}
 
 
 def build_spawn_command(backend_type: BackendType, binary: str, prompt: str, cwd: str) -> str:
     """Build the shell command to spawn an external agent."""
-    builder = _SPAWN_COMMAND_BUILDERS[backend_type]
-    return builder(binary, prompt, cwd)  # type: ignore[operator]
+    if backend_type == "codex":
+        return (
+            f"cd {shlex.quote(cwd)} && "
+            f"{shlex.quote(binary)} "
+            f"--dangerously-bypass-approvals-and-sandbox "
+            f"--no-alt-screen "
+            f"{shlex.quote(prompt)}"
+        )
+    raise ValueError(f"Unknown backend type: {backend_type!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -135,15 +114,12 @@ def build_spawn_command(backend_type: BackendType, binary: str, prompt: str, cwd
 
 
 def discover_backend_binaries() -> dict[str, str]:
-    """Discover available backend binaries on PATH.
-
-    Returns a dict of {backend_type: binary_path} for all found binaries.
-    """
+    """Discover available backend binaries on PATH."""
     found: dict[str, str] = {}
-    for backend_type, binary_name in BACKEND_BINARY_NAMES.items():
-        path = shutil.which(binary_name)
-        if path:
-            found[backend_type] = path
+    # Add new backends here
+    path = shutil.which(_CODEX_BINARY_NAME)
+    if path:
+        found["codex"] = path
     return found
 
 
@@ -177,9 +153,7 @@ def _validate_spawn_args(name: str, binary: str | None, backend_type: BackendTyp
     if name == "team-lead":
         raise ValueError("Agent name 'team-lead' is reserved")
     if not binary:
-        raise ValueError(
-            f"Cannot spawn {backend_type} teammate: '{BACKEND_BINARY_NAMES[backend_type]}' binary not found on PATH."
-        )
+        raise ValueError(f"Cannot spawn {backend_type} teammate: binary not found on PATH.")
 
 
 # ---------------------------------------------------------------------------
@@ -201,13 +175,8 @@ def spawn_external(
     """Spawn an external (non-Claude) agent in a tmux pane.
 
     1. Registers the agent via registry (config + inbox)
-    2. Sends initial prompt to inbox
-    3. Spawns the agent process in tmux
-    4. Updates config with tmux pane ID
-
-    Args:
-        backend_type: Which CLI backend to use (e.g. "codex").
-        binaries: Dict of {backend_type: binary_path} from discover_backend_binaries().
+    2. Spawns the agent process in tmux (prompt via CLI args)
+    3. Updates config with tmux pane ID
 
     Returns the TeammateMember with tmux_pane_id populated.
     """
@@ -228,17 +197,7 @@ def spawn_external(
     )
 
     try:
-        # Step 2: Send initial prompt to inbox
-        initial_msg = InboxMessage(
-            from_="team-lead",
-            text=prompt,
-            timestamp=messaging.now_iso(),
-            read=False,
-        )
-        messaging.append_message(team_name, name, initial_msg, base_dir)
-
-        # Step 3: Spawn process in tmux
-        # Read current teammates for prompt context
+        # Step 2: Spawn process in tmux
         config = teams.read_config(team_name, base_dir)
         teammates = [
             {"name": m.name, "agentType": m.agent_type, "backendType": getattr(m, "backend_type", "claude")}
@@ -262,7 +221,7 @@ def spawn_external(
         )
         pane_id = result.stdout.strip()
 
-        # Step 4: Update config with pane ID
+        # Step 3: Update config with pane ID
         config = teams.read_config(team_name, base_dir)
         for m in config.members:
             if isinstance(m, TeammateMember) and m.name == name:

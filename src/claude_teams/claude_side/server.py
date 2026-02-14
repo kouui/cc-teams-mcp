@@ -8,7 +8,8 @@ This server only bridges external agents into the native team system.
 """
 
 import logging
-from typing import Any, Literal
+import os.path
+from typing import Any
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -17,20 +18,12 @@ from fastmcp.server.lifespan import lifespan
 from claude_teams.claude_side import watcher
 from claude_teams.claude_side.registry import register_external_agent as _register_agent
 from claude_teams.claude_side.registry import unregister_external_agent
-from claude_teams.claude_side.spawner import (
-    BackendType,
-    discover_backend_binaries,
-    kill_tmux_pane,
-    spawn_external,
-    use_tmux_windows,
-)
+from claude_teams.claude_side.spawner import BackendType, discover_backend_binaries, kill_tmux_pane, spawn_external
 from claude_teams.claude_side.tmux_introspection import peek_pane, resolve_pane_target
 from claude_teams.common import tasks, teams
 from claude_teams.common.models import SpawnResult, TeammateMember
 
 logger = logging.getLogger(__name__)
-
-_lifespan_state: dict[str, Any] = {}
 
 
 @lifespan
@@ -42,12 +35,9 @@ async def app_lifespan(server):
         )
     logger.info("Discovered backend binaries: %s", binaries)
 
-    _lifespan_state.clear()
-    _lifespan_state["binaries"] = binaries
     try:
-        yield _lifespan_state
+        yield {"binaries": binaries}
     finally:
-        # Clean up all watchers on server shutdown
         stopped = watcher.stop_all_watchers()
         if stopped:
             logger.info("Stopped %d inbox watcher(s) on server shutdown", stopped)
@@ -67,23 +57,27 @@ mcp = FastMCP(
 )
 
 
-def _get_lifespan(ctx: Context) -> dict[str, Any]:
-    return ctx.lifespan_context
+def _find_external_teammate(team_name: str, name: str) -> TeammateMember:
+    """Find an external (non-Claude) teammate by name.
 
-
-def _find_teammate(team_name: str, name: str) -> TeammateMember | None:
-    config = teams.read_config(team_name)
+    Raises ToolError if team not found, agent not found, or agent is not external.
+    """
+    try:
+        config = teams.read_config(team_name)
+    except FileNotFoundError:
+        raise ToolError(f"Team {team_name!r} not found")
     for m in config.members:
         if isinstance(m, TeammateMember) and m.name == name:
+            if m.backend_type == "claude":
+                raise ToolError(f"Agent {name!r} is a native Claude teammate — use Claude Code's native tools instead.")
             return m
-    return None
+    raise ToolError(f"External agent {name!r} not found in team {team_name!r}")
 
 
 @mcp.tool
 def register_external_agent(
     team_name: str,
     name: str,
-    ctx: Context,
     agent_type: str = "general-purpose",
     cwd: str = "",
 ) -> dict:
@@ -120,11 +114,10 @@ async def spawn_external_agent(
     subagent_type: str = "general-purpose",
     cwd: str = "",
 ) -> dict:
-    """Spawn a new external (non-Claude) agent in a tmux {target}.
+    """Spawn a new external (non-Claude) agent in a tmux pane.
 
-    The agent is registered in the team config, receives its initial prompt
-    via inbox, and begins working autonomously. An inbox watcher is started
-    to deliver messages to the agent via tmux injection.
+    The agent is registered in the team config and begins working autonomously.
+    An inbox watcher is started to deliver messages to the agent via tmux injection.
 
     Args:
         backend_type: CLI backend to use. Currently supported: "codex".
@@ -132,13 +125,10 @@ async def spawn_external_agent(
         cwd: Working directory (must be an absolute path).
 
     Names must be unique within the team.
-    """.format(target="window" if use_tmux_windows() else "pane")
-    import os.path
-
+    """
     if not cwd or not os.path.isabs(cwd):
         raise ToolError("cwd is required and must be an absolute path.")
-    ls = _get_lifespan(ctx)
-    binaries: dict[str, str] = ls.get("binaries", {})
+    binaries: dict[str, str] = ctx.lifespan_context.get("binaries", {})
     try:
         member = spawn_external(
             team_name=team_name,
@@ -149,8 +139,10 @@ async def spawn_external_agent(
             subagent_type=subagent_type,
             cwd=cwd,
         )
-    except ValueError as e:
+    except (ValueError, FileNotFoundError) as e:
         raise ToolError(str(e))
+    except Exception as e:
+        raise ToolError(f"Failed to spawn agent: {e}")
 
     # Start inbox watcher for this agent
     if member.tmux_pane_id:
@@ -183,7 +175,6 @@ def _check_tmux_status(pane_id_raw: str, include_output: bool, output_lines: int
 async def check_external_agent(
     team_name: str,
     agent_name: str,
-    ctx: Context,
     include_output: bool = False,
     output_lines: int = 20,
 ) -> dict:
@@ -191,11 +182,7 @@ async def check_external_agent(
 
     Always non-blocking. Use parallel calls to check multiple agents."""
     output_lines = max(1, min(output_lines, 120))
-
-    member = _find_teammate(team_name, agent_name)
-    if member is None:
-        raise ToolError(f"External agent {agent_name!r} not found in team {team_name!r}")
-
+    member = _find_external_teammate(team_name, agent_name)
     tmux = _check_tmux_status(member.tmux_pane_id, include_output, output_lines)
 
     result: dict = {
@@ -210,14 +197,12 @@ async def check_external_agent(
 
 
 @mcp.tool
-def shutdown_external_agent(team_name: str, agent_name: str, ctx: Context) -> dict:
+def shutdown_external_agent(team_name: str, agent_name: str) -> dict:
     """Shut down an external agent by killing its tmux pane/window,
     stopping its inbox watcher, removing it from team config, and resetting its tasks."""
     if agent_name == "team-lead":
         raise ToolError("Cannot shut down team-lead")
-    member = _find_teammate(team_name, agent_name)
-    if member is None:
-        raise ToolError(f"External agent {agent_name!r} not found in team {team_name!r}")
+    member = _find_external_teammate(team_name, agent_name)
 
     # Stop inbox watcher first
     watcher.stop_watcher(team_name, agent_name)

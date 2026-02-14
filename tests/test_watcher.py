@@ -107,8 +107,8 @@ class TestWatcherMessageDelivery:
             assert injected[0].text == "Hello codex!"
             assert injected[0].from_ == "team-lead"
 
-    async def test_marks_messages_as_read(self, team_dir: Path) -> None:
-        """After injection, messages should be marked as read."""
+    async def test_marks_messages_as_read_after_injection(self, team_dir: Path) -> None:
+        """After successful injection, messages should be marked as read."""
         messaging.ensure_inbox(TEAM, "codex2", base_dir=team_dir)
 
         with patch("claude_teams.claude_side.watcher.inject_messages", return_value=1):
@@ -128,6 +128,28 @@ class TestWatcherMessageDelivery:
         # Check that message is now read
         msgs = messaging.read_inbox(TEAM, "codex2", unread_only=True, mark_as_read=False, base_dir=team_dir)
         assert len(msgs) == 0
+
+    async def test_does_not_mark_as_read_on_injection_failure(self, team_dir: Path) -> None:
+        """If injection fails (returns 0), messages should stay unread."""
+        messaging.ensure_inbox(TEAM, "codex-fail", base_dir=team_dir)
+
+        with patch("claude_teams.claude_side.watcher.inject_messages", return_value=0):
+            watcher.start_watcher(TEAM, "codex-fail", "%53", base_dir=team_dir)
+            await asyncio.sleep(0.2)
+
+            messaging.send_plain_message(
+                TEAM,
+                "team-lead",
+                "codex-fail",
+                "this should stay unread",
+                summary="test",
+                base_dir=team_dir,
+            )
+            await asyncio.sleep(1.5)
+
+        # Messages should still be unread since injection returned 0
+        msgs = messaging.read_inbox(TEAM, "codex-fail", unread_only=True, mark_as_read=False, base_dir=team_dir)
+        assert len(msgs) == 1
 
     async def test_ignores_already_read_messages(self, team_dir: Path) -> None:
         """Watcher should not re-inject already read messages."""

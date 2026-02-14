@@ -98,6 +98,26 @@ class TestSendMessage:
         cc_msgs = [m for m in lead_msgs if m.from_ == "alice" and "[CC" in (m.summary or "")]
         assert len(cc_msgs) == 1
 
+    async def test_should_not_cc_team_lead_when_disabled(self, client: Client):
+        _setup_team("t2b")
+        teams.add_member("t2b", _make_teammate("alice", "t2b"))
+        teams.add_member("t2b", _make_teammate("bob", "t2b"))
+        await client.call_tool(
+            "send_message",
+            {
+                "team_name": "t2b",
+                "sender": "alice",
+                "recipient": "bob",
+                "content": "private msg",
+                "summary": "private",
+                "cc_team_lead": False,
+            },
+        )
+        bob_msgs = messaging.read_inbox("t2b", "bob", mark_as_read=False)
+        assert len(bob_msgs) == 1
+        lead_msgs = messaging.read_inbox("t2b", "team-lead", mark_as_read=False)
+        assert len(lead_msgs) == 0
+
     async def test_should_reject_empty_content(self, client: Client):
         _setup_team("t3")
         teams.add_member("t3", _make_teammate("worker", "t3"))

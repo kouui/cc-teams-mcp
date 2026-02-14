@@ -6,14 +6,10 @@ import pytest
 
 from claude_teams.common.models import (
     COLOR_PALETTE,
-    IdleNotification,
     InboxMessage,
     LeadMember,
     SendMessageResult,
-    ShutdownApproved,
-    ShutdownRequest,
     SpawnResult,
-    TaskAssignment,
     TaskFile,
     TeamConfig,
     TeamCreateResult,
@@ -301,67 +297,6 @@ class TestInboxMessage:
         )
         data = msg.model_dump(by_alias=True, exclude_none=True)
         assert data["color"] == "blue"
-
-
-class TestStructuredMessages:
-    def test_idle_notification(self):
-        n = IdleNotification(
-            from_="worker",
-            timestamp="2026-02-06T17:18:04.701Z",
-        )
-        data = json.loads(n.model_dump_json(by_alias=True))
-        assert data["type"] == "idle_notification"
-        assert data["from"] == "worker"
-        assert data["idleReason"] == "available"
-
-    def test_task_assignment(self):
-        a = TaskAssignment(
-            task_id="1",
-            subject="Do thing",
-            description="Details",
-            assigned_by="team-lead",
-            timestamp="2026-02-06T17:18:04.701Z",
-        )
-        data = json.loads(a.model_dump_json(by_alias=True))
-        assert data["type"] == "task_assignment"
-        assert data["taskId"] == "1"
-        assert data["assignedBy"] == "team-lead"
-
-    def test_shutdown_request(self):
-        r = ShutdownRequest(
-            request_id="shutdown-1770398300000@worker",
-            from_="team-lead",
-            reason="Done",
-            timestamp="ts",
-        )
-        data = json.loads(r.model_dump_json(by_alias=True))
-        assert data["type"] == "shutdown_request"
-        assert data["requestId"] == "shutdown-1770398300000@worker"
-        assert data["from"] == "team-lead"
-
-    def test_shutdown_approved(self):
-        a = ShutdownApproved(
-            request_id="shutdown-123@worker",
-            from_="worker",
-            timestamp="ts",
-            pane_id="%34",
-            backend_type="claude",
-        )
-        data = json.loads(a.model_dump_json(by_alias=True))
-        assert data["type"] == "shutdown_approved"
-        assert data["paneId"] == "%34"
-        assert data["backendType"] == "claude"
-
-    def test_shutdown_approved_with_codex_backend(self):
-        a = ShutdownApproved(
-            request_id="r",
-            from_="w",
-            timestamp="ts",
-            pane_id="%1",
-            backend_type="codex",
-        )
-        data = a.model_dump(by_alias=True, exclude_none=True)
-        assert data["backendType"] == "codex"
 
 
 class TestToolReturnModels:

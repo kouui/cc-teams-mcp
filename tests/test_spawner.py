@@ -92,7 +92,7 @@ class TestSpawnExternalNameValidation:
             spawn_external(TEAM, "team-lead", "prompt", "codex", BINARIES, base_dir=team_dir)
 
     def test_should_reject_when_binary_missing(self, team_dir: Path) -> None:
-        with pytest.raises(ValueError, match="codex"):
+        with pytest.raises(ValueError, match="binary not found"):
             spawn_external(TEAM, "worker", "prompt", "codex", {}, base_dir=team_dir)
 
 
@@ -113,7 +113,8 @@ class TestSpawnExternal:
         assert "researcher" in names
 
     @patch("claude_teams.claude_side.spawner.subprocess")
-    def test_writes_prompt_to_inbox(self, mock_subprocess: MagicMock, team_dir: Path) -> None:
+    def test_does_not_write_prompt_to_inbox(self, mock_subprocess: MagicMock, team_dir: Path) -> None:
+        """Prompt is passed via CLI args, not inbox. Inbox should be empty after spawn."""
         mock_subprocess.run.return_value.stdout = "%42\n"
         spawn_external(
             TEAM,
@@ -124,9 +125,7 @@ class TestSpawnExternal:
             base_dir=team_dir,
         )
         msgs = messaging.read_inbox(TEAM, "researcher", base_dir=team_dir)
-        assert len(msgs) == 1
-        assert msgs[0].from_ == "team-lead"
-        assert msgs[0].text == "Do research"
+        assert len(msgs) == 0
 
     @patch("claude_teams.claude_side.spawner.subprocess")
     def test_updates_pane_id(self, mock_subprocess: MagicMock, team_dir: Path) -> None:
