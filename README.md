@@ -2,116 +2,118 @@
 
 # cc-teams-mcp
 
-MCP server that implements Claude Code's [agent teams](https://code.claude.com/docs/en/agent-teams) protocol for any MCP client.
+Hybrid bridge that lets non-Claude agents (e.g., Codex CLI) participate in Claude Code's native [agent teams](https://code.claude.com/docs/en/agent-teams).
 
 Forked from [cs50victor/claude-code-teams-mcp](https://github.com/cs50victor/claude-code-teams-mcp) — thanks to cs50victor for the original work!
 
 </div>
 
-Claude Code has a built-in agent teams feature (shared task lists, inter-agent messaging, tmux-based spawning), but the protocol is internal and tightly coupled to its own tooling. This MCP server reimplements that protocol as a standalone [MCP](https://modelcontextprotocol.io/) server, making it available to any MCP client: [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex CLI](https://github.com/openai/codex), or anything else that speaks MCP. Based on a [deep dive into Claude Code's internals](https://gist.github.com/cs50victor/0a7081e6824c135b4bdc28b566e1c719).
+## What is this?
+
+Claude Code has a built-in agent teams feature with event-driven messaging — messages are automatically injected into agent context as new conversation turns. This project provides **two MCP servers** that bridge non-Claude agents into this native system:
+
+- **MCP-A (`claude-teams-bridge`)**: Used by Claude Code team-lead to spawn, monitor, and shut down external agents. Watches inbox files and injects messages into external agent tmux panes via `send-keys`.
+- **MCP-B (`claude-teams-external`)**: Used by non-Claude agents (e.g., Codex CLI) to send messages and manage tasks. Messages written to inbox files are automatically picked up by Claude Code's native runtime.
+
+### Communication Paths
+
+| From → To               | Mechanism                                               | Latency  |
+| ----------------------- | ------------------------------------------------------- | -------- |
+| Claude → Claude         | Native message injection (built-in)                     | ~instant |
+| Claude → Non-Claude     | Claude writes to inbox → MCP-A watcher → tmux send-keys | ~seconds |
+| Non-Claude → Claude     | MCP-B writes to inbox → Claude runtime auto-injects     | ~instant |
+| Non-Claude → Non-Claude | MCP-B writes to inbox → MCP-A watcher → tmux send-keys  | ~seconds |
+
+**No polling required for any agent type.**
 
 ## Install
 
-Claude Code — project scope (`.mcp.json` in project root) or user scope (`~/.claude.json`):
+### MCP-A: For Claude Code team-lead
+
+Add to `.mcp.json` (project scope) or `~/.claude.json` (user scope):
 
 ```json
 {
   "mcpServers": {
-    "claude-teams": {
+    "claude-teams-bridge": {
       "command": "uvx",
       "args": [
         "--from",
         "git+https://github.com/kouui/cc-teams-mcp",
-        "claude-teams"
+        "claude-teams-bridge"
       ],
-      "env": {
-        "CLAUDE_TEAMS_BACKENDS": "claude,codex"
-      },
       "allowedTools": ["*"]
     }
   }
 }
 ```
 
-> **Note**: `"allowedTools": ["*"]` is required so that Claude Code can call all team coordination tools without prompting for permission on each invocation.
+### MCP-B: For Codex CLI teammates
 
-Codex CLI (`~/.codex/config.toml`):
+Add to `~/.codex/config.toml`:
 
 ```toml
-[mcp_servers.claude-teams]
+[mcp_servers.claude-teams-external]
 command = "uvx"
-args = ["--from", "git+https://github.com/kouui/cc-teams-mcp", "claude-teams"]
+args = ["--from", "git+https://github.com/kouui/cc-teams-mcp", "claude-teams-external"]
 ```
+
+> MCP-B is automatically configured when Codex teammates are spawned via MCP-A.
 
 ## Requirements
 
 - Python 3.12+
 - [tmux](https://github.com/tmux/tmux)
-- At least one coding agent on PATH: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) or [Codex CLI](https://github.com/openai/codex) (`codex`)
-- Codex teammates require the `claude-teams` MCP server configured in `~/.codex/config.toml`
-
-## Configuration
-
-| Variable                                    | Description                                          | Default                            |
-| ------------------------------------------- | ---------------------------------------------------- | ---------------------------------- |
-| `CLAUDE_TEAMS_BACKENDS`                     | Comma-separated enabled backends (`claude`, `codex`) | Auto-detect from connecting client |
-| `USE_TMUX_WINDOWS`                          | Spawn teammates in tmux windows instead of panes     | _(unset)_                          |
-| `CLAUDE_TEAMS_DANGEROUSLY_SKIP_PERMISSIONS` | Skip permission prompts for Claude Code teammates    | _(unset)_                          |
-
-Without `CLAUDE_TEAMS_BACKENDS`, the server auto-detects the connecting client and enables only its backend. Set it explicitly to enable multiple backends:
-
-```json
-{
-  "mcpServers": {
-    "claude-teams": {
-      "command": "uvx",
-      "args": [
-        "--from",
-        "git+https://github.com/kouui/cc-teams-mcp",
-        "claude-teams"
-      ],
-      "env": {
-        "CLAUDE_TEAMS_BACKENDS": "claude,codex"
-      }
-    }
-  }
-}
-```
+- At least one external agent CLI on PATH: [Codex CLI](https://github.com/openai/codex) (`codex`)
 
 ## Tools
 
-| Tool                        | Description                                                  |
-| --------------------------- | ------------------------------------------------------------ |
-| `team_create`               | Create a new agent team (one per session)                    |
-| `team_delete`               | Delete team and all data (fails if teammates active)         |
-| `spawn_teammate`            | Spawn a teammate in tmux (uses each backend's default model) |
-| `send_message`              | Send DMs, broadcasts (lead only), shutdown/plan responses    |
-| `read_inbox`                | Read messages from an agent's inbox                          |
-| `check_teammate`            | Check teammate status, messages, and terminal output         |
-| `read_config`               | Read team config and member list                             |
-| `task_create`               | Create a task (auto-incrementing ID)                         |
-| `task_update`               | Update task status, owner, dependencies, or metadata         |
-| `task_list`                 | List all tasks                                               |
-| `task_get`                  | Get full task details                                        |
-| `force_kill_teammate`       | Kill a teammate's tmux pane/window and clean up              |
-| `process_shutdown_approved` | Remove teammate after graceful shutdown                      |
+### MCP-A: `claude-teams-bridge`
 
-## Backends
+| Tool                      | Description                                                    |
+| ------------------------- | -------------------------------------------------------------- |
+| `register_external_agent` | Register a non-Claude agent in team config without spawning    |
+| `spawn_external_agent`    | Spawn an external agent in tmux with inbox watcher             |
+| `check_external_agent`    | Check agent status: alive/dead, watcher state, terminal output |
+| `shutdown_external_agent` | Kill tmux pane, stop watcher, unregister, reset tasks          |
 
-### Claude Code (`claude`)
+### MCP-B: `claude-teams-external`
 
-Claude Code teammates use native agent teams flags (`--agent-id`, `--team-name`, etc.) and participate in the team protocol directly. Each teammate uses the CLI's default model.
+| Tool           | Description                                         |
+| -------------- | --------------------------------------------------- |
+| `send_message` | Send a message to any team member (writes to inbox) |
+| `task_create`  | Create a new task                                   |
+| `task_list`    | List all tasks                                      |
+| `task_get`     | Get task details                                    |
+| `task_update`  | Update task status, owner, dependencies             |
 
-### Codex CLI (`codex`)
+## Configuration
 
-Codex teammates are spawned as interactive `codex` processes in tmux with `--dangerously-bypass-approvals-and-sandbox --no-alt-screen`. They receive team coordination instructions via a prompt wrapper that teaches them to use MCP tools (`read_inbox`, `send_message`, `task_update`, etc.) from the `claude-teams` MCP server.
+| Variable           | Description                            | Default   |
+| ------------------ | -------------------------------------- | --------- |
+| `USE_TMUX_WINDOWS` | Spawn in tmux windows instead of panes | _(unset)_ |
 
 ## Architecture
 
-- **Spawning**: Teammates launch in tmux panes (default) or windows (`USE_TMUX_WINDOWS`). Each gets a unique agent ID and color from a round-robin palette.
-- **Messaging**: JSON inboxes at `~/.claude/teams/<team>/inboxes/`. Lead messages anyone; teammates message only lead. Structured message types for task assignments, shutdown requests/approvals, and plan approvals.
-- **Tasks**: JSON files at `~/.claude/tasks/<team>/`. Status lifecycle (`pending` → `in_progress` → `completed`), ownership with auto-notification, and DAG-based dependency management with cycle detection.
-- **Concurrency**: Atomic config writes via `tempfile` + `os.replace`. Cross-process file locks via `filelock` for inbox and task operations.
+```
+Claude Code (team-lead)
+  ├── Native: TeamCreate / SendMessage / Task tools
+  │   └── Event-driven message delivery (auto-injected turns)
+  │
+  ├── MCP-A (claude-teams-bridge)
+  │   ├── Tools: register, spawn, check, shutdown
+  │   └── Inbox watcher → tmux send-keys injection
+  │
+  └── Claude teammates (native communication, no MCP needed)
+
+Non-Claude instance (e.g., Codex in tmux pane)
+  ├── MCP-B (claude-teams-external)
+  │   ├── Tools: send_message, task_*
+  │   └── Writes to inbox files (read: false)
+  └── Initial prompt: team info + MCP-B tool usage
+```
+
+### File Layout
 
 ```
 ~/.claude/
@@ -119,13 +121,29 @@ Codex teammates are spawned as interactive `codex` processes in tmux with `--dan
 │   ├── config.json
 │   └── inboxes/
 │       ├── team-lead.json
-│       ├── worker-1.json
+│       ├── codex-worker.json
 │       └── .lock
 └── tasks/<team>/
     ├── 1.json
-    ├── 2.json
     └── .lock
 ```
+
+### Package Structure
+
+```
+src/claude_teams/
+  common/          # Shared: models, messaging, tasks, teams, _filelock
+  claude_side/     # MCP-A: server, spawner, registry, watcher, injector
+  external_side/   # MCP-B: server
+```
+
+## Backends
+
+Currently supported: **Codex CLI** (`codex`).
+
+Codex teammates are spawned in tmux with `--dangerously-bypass-approvals-and-sandbox --no-alt-screen`. They receive a prompt wrapper with team context (members list, MCP-B tool usage, communication rules).
+
+Adding a new backend requires extending `BackendType` and adding `elif` branches in `build_spawn_command`, `wrap_prompt`, and `discover_backend_binaries` in `spawner.py`.
 
 ## Development
 
@@ -133,7 +151,7 @@ Codex teammates are spawned as interactive `codex` processes in tmux with `--dan
 uv sync                          # install dependencies
 uv run pytest tests/ -x          # run tests
 uv run ruff check src/           # lint
-uv run pyright src/               # type check
+uv run pyright src/              # type check
 ```
 
 ## License

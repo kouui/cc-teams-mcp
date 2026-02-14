@@ -1,30 +1,21 @@
 from __future__ import annotations
 
 import json
-import re
-import threading
 from pathlib import Path
+import threading
 
 import pytest
 
-from claude_teams.models import (
-    InboxMessage,
-    ShutdownRequest,
-    TaskAssignment,
-    TaskFile,
-)
-from claude_teams.messaging import (
+from claude_teams.common.messaging import (
     append_message,
     ensure_inbox,
     inbox_path,
+    mark_messages_as_read,
     now_iso,
     read_inbox,
-    read_inbox_filtered,
     send_plain_message,
-    send_shutdown_request,
-    send_structured_message,
-    send_task_assignment,
 )
+from claude_teams.common.models import InboxMessage
 
 
 @pytest.fixture
@@ -117,54 +108,6 @@ def test_send_plain_message_with_color(tmp_claude_dir):
     assert msgs[0].color == "blue"
 
 
-def test_send_structured_message_serializes_json_in_text(tmp_claude_dir):
-    payload = TaskAssignment(
-        task_id="t-1",
-        subject="Do thing",
-        description="Details here",
-        assigned_by="lead",
-        timestamp=now_iso(),
-    )
-    send_structured_message("test-team", "lead", "hank", payload, base_dir=tmp_claude_dir)
-    msgs = read_inbox("test-team", "hank", mark_as_read=False, base_dir=tmp_claude_dir)
-    assert len(msgs) == 1
-    parsed = json.loads(msgs[0].text)
-    assert parsed["type"] == "task_assignment"
-    assert parsed["taskId"] == "t-1"
-
-
-def test_send_task_assignment_format(tmp_claude_dir):
-    task = TaskFile(
-        id="task-42",
-        subject="Build feature",
-        description="Build it well",
-        owner="iris",
-    )
-    send_task_assignment("test-team", task, assigned_by="lead", base_dir=tmp_claude_dir)
-    msgs = read_inbox("test-team", "iris", mark_as_read=False, base_dir=tmp_claude_dir)
-    assert len(msgs) == 1
-    parsed = json.loads(msgs[0].text)
-    assert parsed["type"] == "task_assignment"
-    assert parsed["taskId"] == "task-42"
-    assert parsed["subject"] == "Build feature"
-    assert parsed["description"] == "Build it well"
-    assert parsed["assignedBy"] == "lead"
-
-
-def test_send_shutdown_request_returns_request_id(tmp_claude_dir):
-    req_id = send_shutdown_request("test-team", "jake", base_dir=tmp_claude_dir)
-    assert re.match(r"^shutdown-\d+@jake$", req_id)
-
-
-def test_send_shutdown_request_with_reason(tmp_claude_dir):
-    send_shutdown_request("test-team", "kate", reason="Done", base_dir=tmp_claude_dir)
-    msgs = read_inbox("test-team", "kate", mark_as_read=False, base_dir=tmp_claude_dir)
-    assert len(msgs) == 1
-    parsed = json.loads(msgs[0].text)
-    assert parsed["type"] == "shutdown_request"
-    assert parsed["reason"] == "Done"
-
-
 def test_should_not_lose_message_appended_during_mark_as_read(tmp_claude_dir):
     from filelock import FileLock
 
@@ -191,84 +134,36 @@ def test_should_not_lose_message_appended_during_mark_as_read(tmp_claude_dir):
 
     reader.join(timeout=5)
 
-    assert not completed_without_lock, (
-        "read_inbox(mark_as_read=True) completed without acquiring the inbox lock"
-    )
+    assert not completed_without_lock, "read_inbox(mark_as_read=True) completed without acquiring the inbox lock"
 
 
 def test_now_iso_format():
+    import re
+
     ts = now_iso()
     assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$", ts)
 
 
-def test_read_inbox_filtered_by_sender(tmp_claude_dir):
-    msg1 = InboxMessage(from_="alice", text="from alice", timestamp=now_iso(), read=False, summary="a")
-    msg2 = InboxMessage(from_="bob", text="from bob", timestamp=now_iso(), read=False, summary="b")
-    msg3 = InboxMessage(from_="alice", text="from alice 2", timestamp=now_iso(), read=False, summary="a2")
-    append_message("test-team", "lead", msg1, base_dir=tmp_claude_dir)
-    append_message("test-team", "lead", msg2, base_dir=tmp_claude_dir)
-    append_message("test-team", "lead", msg3, base_dir=tmp_claude_dir)
+class TestMarkMessagesAsRead:
+    def test_marks_first_n_unread(self, tmp_claude_dir) -> None:
+        for i in range(3):
+            msg = InboxMessage(from_="lead", text=f"msg-{i}", timestamp=now_iso(), read=False, summary=f"s{i}")
+            append_message("test-team", "agent", msg, base_dir=tmp_claude_dir)
 
-    msgs = read_inbox_filtered("test-team", "lead", sender_filter="alice", mark_as_read=False, base_dir=tmp_claude_dir)
-    assert len(msgs) == 2
-    assert all(m.from_ == "alice" for m in msgs)
+        mark_messages_as_read("test-team", "agent", 2, base_dir=tmp_claude_dir)
+        msgs = read_inbox("test-team", "agent", mark_as_read=False, base_dir=tmp_claude_dir)
+        read_count = sum(1 for m in msgs if m.read)
+        unread_count = sum(1 for m in msgs if not m.read)
+        assert read_count == 2
+        assert unread_count == 1
 
+    def test_marks_zero_is_noop(self, tmp_claude_dir) -> None:
+        msg = InboxMessage(from_="lead", text="x", timestamp=now_iso(), read=False, summary="s")
+        append_message("test-team", "agent2", msg, base_dir=tmp_claude_dir)
 
-def test_read_inbox_filtered_marks_only_matching(tmp_claude_dir):
-    msg1 = InboxMessage(from_="alice", text="from alice", timestamp=now_iso(), read=False, summary="a")
-    msg2 = InboxMessage(from_="bob", text="from bob", timestamp=now_iso(), read=False, summary="b")
-    append_message("test-team", "lead", msg1, base_dir=tmp_claude_dir)
-    append_message("test-team", "lead", msg2, base_dir=tmp_claude_dir)
+        mark_messages_as_read("test-team", "agent2", 0, base_dir=tmp_claude_dir)
+        msgs = read_inbox("test-team", "agent2", unread_only=True, mark_as_read=False, base_dir=tmp_claude_dir)
+        assert len(msgs) == 1
 
-    read_inbox_filtered("test-team", "lead", sender_filter="alice", mark_as_read=True, base_dir=tmp_claude_dir)
-
-    # Bob's message should still be unread
-    all_msgs = read_inbox("test-team", "lead", mark_as_read=False, base_dir=tmp_claude_dir)
-    bob_msgs = [m for m in all_msgs if m.from_ == "bob"]
-    assert len(bob_msgs) == 1
-    assert bob_msgs[0].read is False
-
-    # Alice's message should be read
-    alice_msgs = [m for m in all_msgs if m.from_ == "alice"]
-    assert len(alice_msgs) == 1
-    assert alice_msgs[0].read is True
-
-
-def test_read_inbox_filtered_with_limit(tmp_claude_dir):
-    for i in range(5):
-        msg = InboxMessage(from_="alice", text=f"msg-{i}", timestamp=now_iso(), read=False, summary=f"s{i}")
-        append_message("test-team", "lead", msg, base_dir=tmp_claude_dir)
-
-    msgs = read_inbox_filtered("test-team", "lead", sender_filter="alice", limit=2, mark_as_read=False, base_dir=tmp_claude_dir)
-    assert len(msgs) == 2
-    # Should be the last 2 (most recent)
-    assert msgs[0].text == "msg-3"
-    assert msgs[1].text == "msg-4"
-
-
-def test_read_inbox_filtered_unread_only(tmp_claude_dir):
-    msg1 = InboxMessage(from_="alice", text="old", timestamp=now_iso(), read=True, summary="s1")
-    msg2 = InboxMessage(from_="alice", text="new", timestamp=now_iso(), read=False, summary="s2")
-    append_message("test-team", "lead", msg1, base_dir=tmp_claude_dir)
-    append_message("test-team", "lead", msg2, base_dir=tmp_claude_dir)
-
-    msgs = read_inbox_filtered("test-team", "lead", sender_filter="alice", unread_only=True, mark_as_read=False, base_dir=tmp_claude_dir)
-    assert len(msgs) == 1
-    assert msgs[0].text == "new"
-
-
-def test_read_inbox_filtered_no_mark(tmp_claude_dir):
-    msg = InboxMessage(from_="alice", text="hello", timestamp=now_iso(), read=False, summary="s")
-    append_message("test-team", "lead", msg, base_dir=tmp_claude_dir)
-
-    read_inbox_filtered("test-team", "lead", sender_filter="alice", mark_as_read=False, base_dir=tmp_claude_dir)
-
-    # Message should still be unread on disk
-    all_msgs = read_inbox("test-team", "lead", mark_as_read=False, base_dir=tmp_claude_dir)
-    assert len(all_msgs) == 1
-    assert all_msgs[0].read is False
-
-
-def test_read_inbox_filtered_nonexistent_inbox(tmp_claude_dir):
-    msgs = read_inbox_filtered("test-team", "nobody", sender_filter="alice", base_dir=tmp_claude_dir)
-    assert msgs == []
+    def test_nonexistent_inbox_is_noop(self, tmp_claude_dir) -> None:
+        mark_messages_as_read("test-team", "ghost", 5, base_dir=tmp_claude_dir)

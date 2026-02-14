@@ -4,16 +4,12 @@ import json
 
 import pytest
 
-from claude_teams.models import (
+from claude_teams.common.models import (
     COLOR_PALETTE,
-    IdleNotification,
     InboxMessage,
     LeadMember,
     SendMessageResult,
-    ShutdownApproved,
-    ShutdownRequest,
     SpawnResult,
-    TaskAssignment,
     TaskFile,
     TeamConfig,
     TeamCreateResult,
@@ -101,14 +97,14 @@ class TestTeammateMember:
             joined_at=1770398210601,
             tmux_pane_id="%34",
             cwd="/tmp/work",
-            backend_type="claude",
+            backend_type="in-process",
             is_active=False,
         )
         data = mate.model_dump(by_alias=True)
         assert data["agentId"] == "worker@my-team"
         assert data["planModeRequired"] is False
         assert data["tmuxPaneId"] == "%34"
-        assert data["backendType"] == "claude"
+        assert data["backendType"] == "in-process"
         assert data["isActive"] is False
 
     def test_defaults(self):
@@ -124,11 +120,11 @@ class TestTeammateMember:
             cwd="/tmp",
         )
         assert mate.plan_mode_required is False
-        assert mate.backend_type == "claude"
+        assert mate.backend_type == "in-process"
         assert mate.is_active is False
         assert mate.subscriptions == []
 
-    def test_backend_type_defaults_to_claude(self):
+    def test_backend_type_defaults_to_in_process(self):
         mate = TeammateMember(
             agent_id="w@t",
             name="w",
@@ -140,9 +136,9 @@ class TestTeammateMember:
             tmux_pane_id="",
             cwd="/tmp",
         )
-        assert mate.backend_type == "claude"
+        assert mate.backend_type == "in-process"
         data = mate.model_dump(by_alias=True)
-        assert data["backendType"] == "claude"
+        assert data["backendType"] == "in-process"
 
     def test_serialization_round_trip_with_codex_backend(self):
         mate = TeammateMember(
@@ -236,7 +232,7 @@ class TestTeamConfig:
                     "tmuxPaneId": "%5",
                     "cwd": "/tmp",
                     "subscriptions": [],
-                    "backendType": "claude",
+                    "backendType": "in-process",
                     "isActive": False,
                 },
             ],
@@ -303,67 +299,6 @@ class TestInboxMessage:
         assert data["color"] == "blue"
 
 
-class TestStructuredMessages:
-    def test_idle_notification(self):
-        n = IdleNotification(
-            from_="worker",
-            timestamp="2026-02-06T17:18:04.701Z",
-        )
-        data = json.loads(n.model_dump_json(by_alias=True))
-        assert data["type"] == "idle_notification"
-        assert data["from"] == "worker"
-        assert data["idleReason"] == "available"
-
-    def test_task_assignment(self):
-        a = TaskAssignment(
-            task_id="1",
-            subject="Do thing",
-            description="Details",
-            assigned_by="team-lead",
-            timestamp="2026-02-06T17:18:04.701Z",
-        )
-        data = json.loads(a.model_dump_json(by_alias=True))
-        assert data["type"] == "task_assignment"
-        assert data["taskId"] == "1"
-        assert data["assignedBy"] == "team-lead"
-
-    def test_shutdown_request(self):
-        r = ShutdownRequest(
-            request_id="shutdown-1770398300000@worker",
-            from_="team-lead",
-            reason="Done",
-            timestamp="ts",
-        )
-        data = json.loads(r.model_dump_json(by_alias=True))
-        assert data["type"] == "shutdown_request"
-        assert data["requestId"] == "shutdown-1770398300000@worker"
-        assert data["from"] == "team-lead"
-
-    def test_shutdown_approved(self):
-        a = ShutdownApproved(
-            request_id="shutdown-123@worker",
-            from_="worker",
-            timestamp="ts",
-            pane_id="%34",
-            backend_type="claude",
-        )
-        data = json.loads(a.model_dump_json(by_alias=True))
-        assert data["type"] == "shutdown_approved"
-        assert data["paneId"] == "%34"
-        assert data["backendType"] == "claude"
-
-    def test_shutdown_approved_with_codex_backend(self):
-        a = ShutdownApproved(
-            request_id="r",
-            from_="w",
-            timestamp="ts",
-            pane_id="%1",
-            backend_type="codex",
-        )
-        data = a.model_dump(by_alias=True, exclude_none=True)
-        assert data["backendType"] == "codex"
-
-
 class TestToolReturnModels:
     def test_team_create_result(self):
         r = TeamCreateResult(
@@ -383,10 +318,7 @@ class TestToolReturnModels:
 
     def test_spawn_result(self):
         r = SpawnResult(agent_id="w@t", name="w", team_name="t")
-        assert (
-            r.message
-            == "The agent is now running and will receive instructions via mailbox."
-        )
+        assert r.message == "The agent is now running and will receive instructions via mailbox."
 
     def test_send_message_result(self):
         r = SendMessageResult(success=True, message="sent")

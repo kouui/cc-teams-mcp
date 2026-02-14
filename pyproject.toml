@@ -23,7 +23,8 @@ dev = [
 ]
 
 [project.scripts]
-claude-teams = "claude_teams.server:main"
+claude-teams-bridge = "claude_teams.claude_side.server:main"
+claude-teams-external = "claude_teams.external_side.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/claude_teams"]

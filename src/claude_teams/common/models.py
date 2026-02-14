@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import Annotated, Any, Literal, Union
-import uuid
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Discriminator, Field, Tag
 
@@ -45,7 +44,7 @@ class TeammateMember(BaseModel):
     tmux_pane_id: str = Field(alias="tmuxPaneId")
     cwd: str
     subscriptions: list = Field(default_factory=list)
-    backend_type: str = Field(alias="backendType", default="claude")
+    backend_type: str = Field(alias="backendType", default="in-process")
     is_active: bool = Field(alias="isActive", default=False)
 
 
@@ -97,47 +96,6 @@ class InboxMessage(BaseModel):
     read: bool = False
     summary: str | None = Field(default=None)
     color: str | None = Field(default=None)
-
-
-class IdleNotification(BaseModel):
-    model_config = {"populate_by_name": True}
-
-    type: Literal["idle_notification"] = "idle_notification"
-    from_: str = Field(alias="from")
-    timestamp: str
-    idle_reason: str = Field(alias="idleReason", default="available")
-
-
-class TaskAssignment(BaseModel):
-    model_config = {"populate_by_name": True}
-
-    type: Literal["task_assignment"] = "task_assignment"
-    task_id: str = Field(alias="taskId")
-    subject: str
-    description: str
-    assigned_by: str = Field(alias="assignedBy")
-    timestamp: str
-
-
-class ShutdownRequest(BaseModel):
-    model_config = {"populate_by_name": True}
-
-    type: Literal["shutdown_request"] = "shutdown_request"
-    request_id: str = Field(alias="requestId")
-    from_: str = Field(alias="from")
-    reason: str
-    timestamp: str
-
-
-class ShutdownApproved(BaseModel):
-    model_config = {"populate_by_name": True}
-
-    type: Literal["shutdown_approved"] = "shutdown_approved"
-    request_id: str = Field(alias="requestId")
-    from_: str = Field(alias="from")
-    timestamp: str
-    pane_id: str = Field(alias="paneId")
-    backend_type: str = Field(alias="backendType")
 
 
 class TeamCreateResult(BaseModel):
