@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from claude_teams.models import (
+from claude_teams.common.models import (
     COLOR_PALETTE,
     IdleNotification,
     InboxMessage,
@@ -383,10 +383,7 @@ class TestToolReturnModels:
 
     def test_spawn_result(self):
         r = SpawnResult(agent_id="w@t", name="w", team_name="t")
-        assert (
-            r.message
-            == "The agent is now running and will receive instructions via mailbox."
-        )
+        assert r.message == "The agent is now running and will receive instructions via mailbox."
 
     def test_send_message_result(self):
         r = SendMessageResult(success=True, message="sent")

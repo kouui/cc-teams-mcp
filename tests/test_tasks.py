@@ -5,19 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from claude_teams.tasks import (
-    create_task,
-    get_task,
-    list_tasks,
-    next_task_id,
-    reset_owner_tasks,
-    update_task,
-)
+from claude_teams.common.tasks import create_task, get_task, list_tasks, next_task_id, reset_owner_tasks, update_task
 
 
 @pytest.fixture
 def team_tasks_dir(tmp_claude_dir):
-    from claude_teams.teams import create_team
+    from claude_teams.common.teams import create_team
+
     create_team("test-team", "sess-test", base_dir=tmp_claude_dir)
     return tmp_claude_dir / "tasks" / "test-team"
 
@@ -40,17 +34,13 @@ def test_create_task_excludes_none_owner(tmp_claude_dir, team_tasks_dir):
 
 
 def test_create_task_with_metadata(tmp_claude_dir, team_tasks_dir):
-    task = create_task(
-        "test-team", "Sub", "desc", metadata={"key": "val"}, base_dir=tmp_claude_dir
-    )
+    task = create_task("test-team", "Sub", "desc", metadata={"key": "val"}, base_dir=tmp_claude_dir)
     raw = json.loads((team_tasks_dir / f"{task.id}.json").read_text())
     assert raw["metadata"] == {"key": "val"}
 
 
 def test_get_task_round_trip(tmp_claude_dir, team_tasks_dir):
-    created = create_task(
-        "test-team", "Sub", "desc", active_form="do the thing", base_dir=tmp_claude_dir
-    )
+    created = create_task("test-team", "Sub", "desc", active_form="do the thing", base_dir=tmp_claude_dir)
     fetched = get_task("test-team", created.id, base_dir=tmp_claude_dir)
     assert fetched.id == created.id
     assert fetched.subject == "Sub"
@@ -61,9 +51,7 @@ def test_get_task_round_trip(tmp_claude_dir, team_tasks_dir):
 
 def test_update_task_changes_status(tmp_claude_dir, team_tasks_dir):
     task = create_task("test-team", "Sub", "desc", base_dir=tmp_claude_dir)
-    updated = update_task(
-        "test-team", task.id, status="in_progress", base_dir=tmp_claude_dir
-    )
+    updated = update_task("test-team", task.id, status="in_progress", base_dir=tmp_claude_dir)
     assert updated.status == "in_progress"
     on_disk = get_task("test-team", task.id, base_dir=tmp_claude_dir)
     assert on_disk.status == "in_progress"
@@ -71,9 +59,7 @@ def test_update_task_changes_status(tmp_claude_dir, team_tasks_dir):
 
 def test_update_task_sets_owner(tmp_claude_dir, team_tasks_dir):
     task = create_task("test-team", "Sub", "desc", base_dir=tmp_claude_dir)
-    updated = update_task(
-        "test-team", task.id, owner="worker-1", base_dir=tmp_claude_dir
-    )
+    updated = update_task("test-team", task.id, owner="worker-1", base_dir=tmp_claude_dir)
     assert updated.owner == "worker-1"
     raw = json.loads((team_tasks_dir / f"{task.id}.json").read_text())
     assert raw["owner"] == "worker-1"
@@ -83,9 +69,7 @@ def test_update_task_delete_removes_file(tmp_claude_dir, team_tasks_dir):
     task = create_task("test-team", "Sub", "desc", base_dir=tmp_claude_dir)
     fpath = team_tasks_dir / f"{task.id}.json"
     assert fpath.exists()
-    result = update_task(
-        "test-team", task.id, status="deleted", base_dir=tmp_claude_dir
-    )
+    result = update_task("test-team", task.id, status="deleted", base_dir=tmp_claude_dir)
     assert not fpath.exists()
     assert result.status == "deleted"
 
@@ -95,13 +79,9 @@ def test_update_task_add_blocks(tmp_claude_dir, team_tasks_dir):
     t2 = create_task("test-team", "T2", "d", base_dir=tmp_claude_dir)
     t3 = create_task("test-team", "T3", "d", base_dir=tmp_claude_dir)
     t4 = create_task("test-team", "T4", "d", base_dir=tmp_claude_dir)
-    updated = update_task(
-        "test-team", task.id, add_blocks=[t2.id, t3.id], base_dir=tmp_claude_dir
-    )
+    updated = update_task("test-team", task.id, add_blocks=[t2.id, t3.id], base_dir=tmp_claude_dir)
     assert updated.blocks == [t2.id, t3.id]
-    updated2 = update_task(
-        "test-team", task.id, add_blocks=[t3.id, t4.id], base_dir=tmp_claude_dir
-    )
+    updated2 = update_task("test-team", task.id, add_blocks=[t3.id, t4.id], base_dir=tmp_claude_dir)
     assert updated2.blocks == [t2.id, t3.id, t4.id]
 
 
@@ -110,28 +90,18 @@ def test_update_task_add_blocked_by(tmp_claude_dir, team_tasks_dir):
     t2 = create_task("test-team", "Dep1", "d", base_dir=tmp_claude_dir)
     t3 = create_task("test-team", "Dep2", "d", base_dir=tmp_claude_dir)
     t4 = create_task("test-team", "Dep3", "d", base_dir=tmp_claude_dir)
-    updated = update_task(
-        "test-team", task.id, add_blocked_by=[t2.id, t3.id], base_dir=tmp_claude_dir
-    )
+    updated = update_task("test-team", task.id, add_blocked_by=[t2.id, t3.id], base_dir=tmp_claude_dir)
     assert updated.blocked_by == [t2.id, t3.id]
-    updated2 = update_task(
-        "test-team", task.id, add_blocked_by=[t3.id, t4.id], base_dir=tmp_claude_dir
-    )
+    updated2 = update_task("test-team", task.id, add_blocked_by=[t3.id, t4.id], base_dir=tmp_claude_dir)
     assert updated2.blocked_by == [t2.id, t3.id, t4.id]
 
 
 def test_update_task_metadata_merge(tmp_claude_dir, team_tasks_dir):
-    task = create_task(
-        "test-team", "Sub", "desc", metadata={"a": 1}, base_dir=tmp_claude_dir
-    )
-    updated = update_task(
-        "test-team", task.id, metadata={"b": 2}, base_dir=tmp_claude_dir
-    )
+    task = create_task("test-team", "Sub", "desc", metadata={"a": 1}, base_dir=tmp_claude_dir)
+    updated = update_task("test-team", task.id, metadata={"b": 2}, base_dir=tmp_claude_dir)
     assert updated.metadata == {"a": 1, "b": 2}
 
-    updated2 = update_task(
-        "test-team", task.id, metadata={"a": None}, base_dir=tmp_claude_dir
-    )
+    updated2 = update_task("test-team", task.id, metadata={"a": None}, base_dir=tmp_claude_dir)
     assert "a" not in updated2.metadata
     assert updated2.metadata == {"b": 2}
 
@@ -348,8 +318,10 @@ def test_no_partial_write_when_status_validation_fails(tmp_claude_dir, team_task
     task_before = get_task("test-team", task.id, base_dir=tmp_claude_dir)
     with pytest.raises(ValueError, match="blocked by task"):
         update_task(
-            "test-team", task.id,
-            add_blocked_by=[blocker.id], status="in_progress",
+            "test-team",
+            task.id,
+            add_blocked_by=[blocker.id],
+            status="in_progress",
             base_dir=tmp_claude_dir,
         )
     blocker_after = get_task("test-team", blocker.id, base_dir=tmp_claude_dir)
@@ -364,8 +336,10 @@ def test_no_partial_write_on_add_blocks_with_failed_status(tmp_claude_dir, team_
     update_task("test-team", task.id, status="in_progress", base_dir=tmp_claude_dir)
     with pytest.raises(ValueError, match="Cannot transition"):
         update_task(
-            "test-team", task.id,
-            add_blocks=[other.id], status="pending",
+            "test-team",
+            task.id,
+            add_blocks=[other.id],
+            status="pending",
             base_dir=tmp_claude_dir,
         )
     other_after = get_task("test-team", other.id, base_dir=tmp_claude_dir)
@@ -420,8 +394,10 @@ def test_list_tasks_rejects_nonexistent_team(tmp_claude_dir):
 def test_reset_owner_tasks_preserves_completed_status(tmp_claude_dir, team_tasks_dir):
     task = create_task("test-team", "Sub", "desc", base_dir=tmp_claude_dir)
     update_task(
-        "test-team", task.id,
-        owner="w", status="in_progress",
+        "test-team",
+        task.id,
+        owner="w",
+        status="in_progress",
         base_dir=tmp_claude_dir,
     )
     update_task("test-team", task.id, status="completed", base_dir=tmp_claude_dir)

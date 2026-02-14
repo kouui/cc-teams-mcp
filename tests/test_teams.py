@@ -1,21 +1,14 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import time
 import unittest.mock
-from pathlib import Path
 
 import pytest
 
-from claude_teams.models import LeadMember, TeamConfig, TeammateMember
-from claude_teams.teams import (
-    add_member,
-    create_team,
-    delete_team,
-    read_config,
-    remove_member,
-    write_config,
-)
+from claude_teams.common.models import LeadMember, TeamConfig, TeammateMember
+from claude_teams.common.teams import add_member, create_team, delete_team, read_config, remove_member, write_config
 
 
 def _make_teammate(name: str, team_name: str) -> TeammateMember:
@@ -160,12 +153,14 @@ class TestWriteConfig:
 
 class TestTeamExists:
     def test_should_return_true_for_existing_team(self, tmp_claude_dir: Path) -> None:
-        from claude_teams.teams import team_exists
+        from claude_teams.common.teams import team_exists
+
         create_team("exists", "sess-1", base_dir=tmp_claude_dir)
         assert team_exists("exists", base_dir=tmp_claude_dir) is True
 
     def test_should_return_false_for_nonexistent_team(self, tmp_claude_dir: Path) -> None:
-        from claude_teams.teams import team_exists
+        from claude_teams.common.teams import team_exists
+
         assert team_exists("ghost", base_dir=tmp_claude_dir) is False
 
 

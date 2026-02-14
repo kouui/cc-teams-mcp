@@ -1,19 +1,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import re
 import threading
-from pathlib import Path
 
 import pytest
 
-from claude_teams.models import (
-    InboxMessage,
-    ShutdownRequest,
-    TaskAssignment,
-    TaskFile,
-)
-from claude_teams.messaging import (
+from claude_teams.common.messaging import (
     append_message,
     ensure_inbox,
     inbox_path,
@@ -25,6 +19,7 @@ from claude_teams.messaging import (
     send_structured_message,
     send_task_assignment,
 )
+from claude_teams.common.models import InboxMessage, ShutdownRequest, TaskAssignment, TaskFile
 
 
 @pytest.fixture
@@ -191,9 +186,7 @@ def test_should_not_lose_message_appended_during_mark_as_read(tmp_claude_dir):
 
     reader.join(timeout=5)
 
-    assert not completed_without_lock, (
-        "read_inbox(mark_as_read=True) completed without acquiring the inbox lock"
-    )
+    assert not completed_without_lock, "read_inbox(mark_as_read=True) completed without acquiring the inbox lock"
 
 
 def test_now_iso_format():
@@ -239,7 +232,9 @@ def test_read_inbox_filtered_with_limit(tmp_claude_dir):
         msg = InboxMessage(from_="alice", text=f"msg-{i}", timestamp=now_iso(), read=False, summary=f"s{i}")
         append_message("test-team", "lead", msg, base_dir=tmp_claude_dir)
 
-    msgs = read_inbox_filtered("test-team", "lead", sender_filter="alice", limit=2, mark_as_read=False, base_dir=tmp_claude_dir)
+    msgs = read_inbox_filtered(
+        "test-team", "lead", sender_filter="alice", limit=2, mark_as_read=False, base_dir=tmp_claude_dir
+    )
     assert len(msgs) == 2
     # Should be the last 2 (most recent)
     assert msgs[0].text == "msg-3"
@@ -252,7 +247,9 @@ def test_read_inbox_filtered_unread_only(tmp_claude_dir):
     append_message("test-team", "lead", msg1, base_dir=tmp_claude_dir)
     append_message("test-team", "lead", msg2, base_dir=tmp_claude_dir)
 
-    msgs = read_inbox_filtered("test-team", "lead", sender_filter="alice", unread_only=True, mark_as_read=False, base_dir=tmp_claude_dir)
+    msgs = read_inbox_filtered(
+        "test-team", "lead", sender_filter="alice", unread_only=True, mark_as_read=False, base_dir=tmp_claude_dir
+    )
     assert len(msgs) == 1
     assert msgs[0].text == "new"
 
