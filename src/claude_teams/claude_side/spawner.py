@@ -1,3 +1,5 @@
+"""Spawner for external (non-Claude) agent instances in tmux."""
+
 from __future__ import annotations
 
 import os
@@ -7,21 +9,22 @@ import shutil
 import subprocess
 import time
 
-from claude_teams import messaging, teams
-from claude_teams.models import COLOR_PALETTE, InboxMessage, TeammateMember
-from claude_teams.teams import _VALID_NAME_RE
+from claude_teams.common import messaging, teams
+from claude_teams.common.models import COLOR_PALETTE, InboxMessage, TeammateMember
+from claude_teams.common.teams import _VALID_NAME_RE
 
 _CODEX_PROMPT_WRAPPER = """\
 You are team member '{name}' on team '{team_name}'.
 
-You have MCP tools from the claude-teams server for team coordination:
-- read_inbox(team_name="{team_name}", agent_name="{name}") - Check for new messages
-- send_message(team_name="{team_name}", type="message", sender="{name}", recipient="team-lead", content="...", summary="...") - Message teammates
+You have MCP tools from the claude-teams-external server for team coordination:
+- send_message(team_name="{team_name}", sender="{name}", recipient="<name>", content="...", summary="...") - Send message to any teammate
 - task_list(team_name="{team_name}") - View team tasks
 - task_update(team_name="{team_name}", task_id="...", status="...") - Update task status
 - task_get(team_name="{team_name}", task_id="...") - Get task details
+- task_create(team_name="{team_name}", subject="...", description="...") - Create a new task
 
-Start by reading your inbox for instructions.
+Messages from other agents will appear as user input in format: [Message from <name>]: <content>
+When you receive a message, respond using send_message tool.
 
 ---
 
@@ -59,110 +62,53 @@ def assign_color(team_name: str, base_dir: Path | None = None) -> str:
     return COLOR_PALETTE[count % len(COLOR_PALETTE)]
 
 
-def skip_permissions() -> bool:
-    """Return True when spawned teammates should skip permission prompts."""
-    return os.environ.get("CLAUDE_TEAMS_DANGEROUSLY_SKIP_PERMISSIONS") is not None
-
-
-def build_claude_spawn_command(
-    member: TeammateMember,
-    claude_binary: str,
-    lead_session_id: str,
-) -> str:
-    """Build the shell command to spawn a Claude Code teammate."""
-    team_name = member.agent_id.split("@", 1)[1]
-    cmd = (
-        f"cd {shlex.quote(member.cwd)} && "
-        f"CLAUDECODE=1 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 "
-        f"{shlex.quote(claude_binary)} "
-        f"--agent-id {shlex.quote(member.agent_id)} "
-        f"--agent-name {shlex.quote(member.name)} "
-        f"--team-name {shlex.quote(team_name)} "
-        f"--agent-color {shlex.quote(member.color)} "
-        f"--parent-session-id {shlex.quote(lead_session_id)} "
-        f"--agent-type {shlex.quote(member.agent_type)}"
-        # TODO: add --model flag back when we need to control the model per teammate;
-        # currently each CLI uses its own default model.
-    )
-    if member.plan_mode_required:
-        cmd += " --plan-mode-required"
-    if skip_permissions():
-        cmd += " --dangerously-skip-permissions"
-    cmd += f" {shlex.quote(member.prompt)}"
-    return cmd
-
-
 def build_codex_spawn_command(
     codex_binary: str,
     prompt: str,
     cwd: str,
 ) -> str:
     """Build the shell command to spawn a Codex CLI teammate."""
-    cmd = (
+    return (
         f"cd {shlex.quote(cwd)} && "
         f"{shlex.quote(codex_binary)} "
         f"--dangerously-bypass-approvals-and-sandbox "
         f"--no-alt-screen "
         f"{shlex.quote(prompt)}"
     )
-    return cmd
 
 
-def _validate_spawn_args(name: str, backend_type: str, claude_binary: str | None, codex_binary: str | None) -> None:
-    """Validate spawn_teammate arguments, raising ValueError on failure."""
+def _validate_spawn_args(name: str, codex_binary: str | None) -> None:
+    """Validate spawn_external arguments, raising ValueError on failure."""
     if not _VALID_NAME_RE.match(name):
         raise ValueError(f"Invalid agent name: {name!r}. Use only letters, numbers, hyphens, underscores.")
     if len(name) > 64:
         raise ValueError(f"Agent name too long ({len(name)} chars, max 64)")
     if name == "team-lead":
         raise ValueError("Agent name 'team-lead' is reserved")
-    if backend_type == "codex" and not codex_binary:
+    if not codex_binary:
         raise ValueError(
             "Cannot spawn codex teammate: 'codex' binary not found on PATH. "
             "Install Codex CLI or ensure it is in your PATH."
         )
-    if backend_type == "claude" and not claude_binary:
-        raise ValueError(
-            "Cannot spawn claude teammate: 'claude' binary not found on PATH. "
-            "Install Claude Code or ensure it is in your PATH."
-        )
 
 
-def _build_spawn_command(
-    member: TeammateMember,
-    backend_type: str,
-    prompt: str,
-    team_name: str,
-    claude_binary: str | None,
-    codex_binary: str | None,
-    lead_session_id: str,
-) -> str:
-    """Build the shell command for spawning the teammate process."""
-    if backend_type == "codex":
-        wrapped = _CODEX_PROMPT_WRAPPER.format(
-            name=member.name,
-            team_name=team_name,
-            prompt=prompt,
-        )
-        return build_codex_spawn_command(codex_binary, wrapped, member.cwd)
-    return build_claude_spawn_command(member, claude_binary, lead_session_id)
-
-
-def spawn_teammate(
+def spawn_external(
     team_name: str,
     name: str,
     prompt: str,
-    claude_binary: str | None,
-    lead_session_id: str,
+    codex_binary: str | None,
     *,
     subagent_type: str = "general-purpose",
     cwd: str | None = None,
-    plan_mode_required: bool = False,
     base_dir: Path | None = None,
-    backend_type: str = "claude",
-    codex_binary: str | None = None,
 ) -> TeammateMember:
-    _validate_spawn_args(name, backend_type, claude_binary, codex_binary)
+    """Spawn an external (non-Claude) agent in a tmux pane.
+
+    Registers the agent in the team config, creates its inbox,
+    sends the initial prompt, and spawns the Codex process.
+    """
+    _validate_spawn_args(name, codex_binary)
+    assert codex_binary is not None  # guaranteed by _validate_spawn_args
 
     resolved_cwd = cwd or str(Path.cwd())
     color = assign_color(team_name, base_dir)
@@ -174,11 +120,11 @@ def spawn_teammate(
         agent_type=subagent_type,
         prompt=prompt,
         color=color,
-        plan_mode_required=plan_mode_required,
+        plan_mode_required=False,
         joined_at=now_ms,
         tmux_pane_id="",
         cwd=resolved_cwd,
-        backend_type=backend_type,
+        backend_type="external",
         is_active=False,
     )
 
@@ -196,15 +142,12 @@ def spawn_teammate(
         )
         messaging.append_message(team_name, name, initial_msg, base_dir)
 
-        cmd = _build_spawn_command(
-            member,
-            backend_type,
-            prompt,
-            team_name,
-            claude_binary,
-            codex_binary,
-            lead_session_id,
+        wrapped = _CODEX_PROMPT_WRAPPER.format(
+            name=name,
+            team_name=team_name,
+            prompt=prompt,
         )
+        cmd = build_codex_spawn_command(codex_binary, wrapped, resolved_cwd)
         result = subprocess.run(
             build_tmux_spawn_args(cmd, name),
             capture_output=True,
