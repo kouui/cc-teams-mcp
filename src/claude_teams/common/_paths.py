@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -45,5 +44,5 @@ def model_to_json(model: BaseModel) -> str:
     Returns:
         JSON string with camelCase aliases and None values excluded
     """
-    return json.dumps(model.model_dump(by_alias=True, exclude_none=True))
+    return model.model_dump_json(by_alias=True, exclude_none=True)
 
