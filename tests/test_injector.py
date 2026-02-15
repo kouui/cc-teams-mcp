@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from claude_teams.claude_side.injector import format_message_for_injection, inject_message, inject_messages
+from claude_teams.claude_side.injector import (
+    _TMUX_SEND_KEYS_MAX,
+    format_message_for_injection,
+    inject_message,
+    inject_messages,
+)
 from claude_teams.common.models import InboxMessage
 
 
@@ -36,6 +41,20 @@ class TestInjectMessage:
         # Second call: send Enter key
         enter_args = mock_run.call_args_list[1][0][0]
         assert enter_args == ["tmux", "send-keys", "-t", "%42", "Enter"]
+
+    @patch("claude_teams.claude_side.injector.subprocess.run")
+    def test_long_text_sent_in_chunks(self, mock_run: MagicMock) -> None:
+        long_text = "A" * (_TMUX_SEND_KEYS_MAX * 3 + 100)
+        result = inject_message("%42", _msg(text=long_text))
+        assert result is True
+        # 4 chunk calls + 1 Enter call = 5
+        assert mock_run.call_count == 5
+        # Verify each chunk is <= _TMUX_SEND_KEYS_MAX
+        for call in mock_run.call_args_list[:-1]:
+            chunk_text = call[0][0][-1]  # last arg is the text chunk
+            assert len(chunk_text) <= _TMUX_SEND_KEYS_MAX
+        # Last call is Enter
+        assert mock_run.call_args_list[-1][0][0][-1] == "Enter"
 
     @patch("claude_teams.claude_side.injector.subprocess.run")
     def test_returns_false_on_failure(self, mock_run: MagicMock) -> None:
