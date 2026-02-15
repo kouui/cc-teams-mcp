@@ -53,7 +53,7 @@ async def client(tmp_path: Path, monkeypatch):
     )
     monkeypatch.setattr(
         "claude_teams.claude_side.spawner.subprocess.run",
-        lambda *a, **kw: type("R", (), {"stdout": "%99\n"})(),
+        lambda *a, **kw: type("R", (), {"stdout": "%99\n", "returncode": 0})(),
     )
     (tmp_path / "teams").mkdir()
     (tmp_path / "tasks").mkdir()

@@ -7,7 +7,9 @@ import pytest
 
 from claude_teams.claude_side.registry import _external_agents, _next_color
 from claude_teams.claude_side.spawner import (
+    _has_tmux_session,
     build_spawn_command,
+    build_tmux_spawn_args,
     discover_backend_binaries,
     kill_tmux_pane,
     spawn_external,
@@ -270,6 +272,51 @@ class TestKillTmuxPane:
     def test_calls_kill_window_for_window_target(self, mock_subprocess: MagicMock) -> None:
         kill_tmux_pane("@99")
         mock_subprocess.run.assert_called_once_with(["tmux", "kill-window", "-t", "@99"], check=False)
+
+
+class TestBuildTmuxSpawnArgs:
+    @patch("claude_teams.claude_side.spawner._has_tmux_session", return_value=True)
+    def test_uses_split_window_when_session_exists(self, _mock: MagicMock) -> None:
+        args = build_tmux_spawn_args("echo hi", "worker")
+        assert args[:2] == ["tmux", "split-window"]
+
+    @patch("claude_teams.claude_side.spawner._has_tmux_session", return_value=False)
+    def test_uses_new_session_when_no_session(self, _mock: MagicMock) -> None:
+        args = build_tmux_spawn_args("echo hi", "worker")
+        assert args[:2] == ["tmux", "new-session"]
+        assert "-d" in args
+        assert "-s" in args
+        session_idx = args.index("-s")
+        assert args[session_idx + 1] == "claude-agent-worker"
+        assert "echo hi" in args
+
+    @patch("claude_teams.claude_side.spawner._has_tmux_session", return_value=False)
+    def test_new_session_sets_reasonable_size(self, _mock: MagicMock) -> None:
+        args = build_tmux_spawn_args("echo hi", "w")
+        assert "-x" in args and "200" in args
+        assert "-y" in args and "50" in args
+
+    def test_uses_new_window_when_env_set(self, monkeypatch) -> None:
+        monkeypatch.setenv("USE_TMUX_WINDOWS", "1")
+        args = build_tmux_spawn_args("echo hi", "worker")
+        assert args[:2] == ["tmux", "new-window"]
+
+
+class TestHasTmuxSession:
+    @patch("claude_teams.claude_side.spawner.subprocess.run")
+    def test_returns_true_when_sessions_exist(self, mock_run: MagicMock) -> None:
+        mock_run.return_value = MagicMock(returncode=0, stdout="work: 1 windows\n")
+        assert _has_tmux_session() is True
+
+    @patch("claude_teams.claude_side.spawner.subprocess.run")
+    def test_returns_false_when_no_server(self, mock_run: MagicMock) -> None:
+        mock_run.return_value = MagicMock(returncode=1, stdout="")
+        assert _has_tmux_session() is False
+
+    @patch("claude_teams.claude_side.spawner.subprocess.run")
+    def test_returns_false_when_empty_output(self, mock_run: MagicMock) -> None:
+        mock_run.return_value = MagicMock(returncode=0, stdout="")
+        assert _has_tmux_session() is False
 
 
 class TestDiscoverBackendBinaries:
