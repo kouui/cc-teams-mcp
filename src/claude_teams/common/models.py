@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Discriminator, Field, Tag
@@ -27,7 +26,7 @@ class LeadMember(BaseModel):
     joined_at: int = Field(alias="joinedAt")
     tmux_pane_id: str = Field(alias="tmuxPaneId", default="")
     cwd: str
-    subscriptions: list = Field(default_factory=list)
+    subscriptions: list[str] = Field(default_factory=list)
 
 
 class TeammateMember(BaseModel):
@@ -43,7 +42,7 @@ class TeammateMember(BaseModel):
     joined_at: int = Field(alias="joinedAt")
     tmux_pane_id: str = Field(alias="tmuxPaneId")
     cwd: str
-    subscriptions: list = Field(default_factory=list)
+    subscriptions: list[str] = Field(default_factory=list)
     backend_type: str = Field(alias="backendType", default="in-process")
     is_active: bool = Field(alias="isActive", default=False)
 

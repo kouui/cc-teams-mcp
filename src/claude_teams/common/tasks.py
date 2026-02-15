@@ -6,14 +6,11 @@ from pathlib import Path
 from typing import Any
 
 from claude_teams.common._filelock import file_lock
+from claude_teams.common._paths import tasks_dir
 from claude_teams.common.models import TaskFile
 from claude_teams.common.teams import team_exists
 
 TASKS_DIR = Path.home() / ".claude" / "tasks"
-
-
-def _tasks_dir(base_dir: Path | None = None) -> Path:
-    return (base_dir / "tasks") if base_dir else TASKS_DIR
 
 
 _STATUS_ORDER = {"pending": 0, "in_progress": 1, "completed": 2}
@@ -48,7 +45,7 @@ def _would_create_cycle(team_dir: Path, from_id: str, to_id: str, pending_edges:
 
 
 def next_task_id(team_name: str, base_dir: Path | None = None) -> str:
-    team_dir = _tasks_dir(base_dir) / team_name
+    team_dir = tasks_dir(base_dir) / team_name
     ids: list[int] = []
     for f in team_dir.glob("*.json"):
         try:
@@ -70,7 +67,7 @@ def create_task(
         raise ValueError("Task subject must not be empty")
     if not team_exists(team_name, base_dir):
         raise ValueError(f"Team {team_name!r} does not exist")
-    team_dir = _tasks_dir(base_dir) / team_name
+    team_dir = tasks_dir(base_dir) / team_name
     team_dir.mkdir(parents=True, exist_ok=True)
     lock_path = team_dir / ".lock"
 
@@ -91,7 +88,7 @@ def create_task(
 
 
 def get_task(team_name: str, task_id: str, base_dir: Path | None = None) -> TaskFile:
-    team_dir = _tasks_dir(base_dir) / team_name
+    team_dir = tasks_dir(base_dir) / team_name
     fpath = team_dir / f"{task_id}.json"
     raw = json.loads(fpath.read_text())
     return TaskFile(**raw)
@@ -322,7 +319,7 @@ def update_task(
     metadata: dict | None = None,
     base_dir: Path | None = None,
 ) -> TaskFile:
-    team_dir = _tasks_dir(base_dir) / team_name
+    team_dir = tasks_dir(base_dir) / team_name
     lock_path = team_dir / ".lock"
     fpath = team_dir / f"{task_id}.json"
 
@@ -348,7 +345,7 @@ def update_task(
 def list_tasks(team_name: str, base_dir: Path | None = None) -> list[TaskFile]:
     if not team_exists(team_name, base_dir):
         raise ValueError(f"Team {team_name!r} does not exist")
-    team_dir = _tasks_dir(base_dir) / team_name
+    team_dir = tasks_dir(base_dir) / team_name
     tasks: list[TaskFile] = []
     for f in team_dir.glob("*.json"):
         try:
@@ -361,7 +358,7 @@ def list_tasks(team_name: str, base_dir: Path | None = None) -> list[TaskFile]:
 
 
 def reset_owner_tasks(team_name: str, agent_name: str, base_dir: Path | None = None) -> None:
-    team_dir = _tasks_dir(base_dir) / team_name
+    team_dir = tasks_dir(base_dir) / team_name
     lock_path = team_dir / ".lock"
 
     with file_lock(lock_path):

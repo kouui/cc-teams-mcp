@@ -5,13 +5,10 @@ import json
 from pathlib import Path
 
 from claude_teams.common._filelock import file_lock
+from claude_teams.common._paths import teams_dir
 from claude_teams.common.models import InboxMessage
 
 TEAMS_DIR = Path.home() / ".claude" / "teams"
-
-
-def _teams_dir(base_dir: Path | None = None) -> Path:
-    return (base_dir / "teams") if base_dir else TEAMS_DIR
 
 
 def now_iso() -> str:
@@ -20,7 +17,7 @@ def now_iso() -> str:
 
 
 def inbox_path(team_name: str, agent_name: str, base_dir: Path | None = None) -> Path:
-    return _teams_dir(base_dir) / team_name / "inboxes" / f"{agent_name}.json"
+    return teams_dir(base_dir) / team_name / "inboxes" / f"{agent_name}.json"
 
 
 def ensure_inbox(team_name: str, agent_name: str, base_dir: Path | None = None) -> Path:
