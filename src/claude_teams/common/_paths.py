@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+
+from pydantic import BaseModel
 
 CLAUDE_DIR = Path.home() / ".claude"
 TEAMS_DIR = CLAUDE_DIR / "teams"
@@ -31,3 +34,16 @@ def tasks_dir(base_dir: Path | None = None) -> Path:
         Path to the tasks directory
     """
     return (base_dir / "tasks") if base_dir else TASKS_DIR
+
+
+def model_to_json(model: BaseModel) -> str:
+    """Convert a Pydantic model to JSON string with standard formatting.
+    
+    Args:
+        model: Pydantic model to serialize
+        
+    Returns:
+        JSON string with camelCase aliases and None values excluded
+    """
+    return json.dumps(model.model_dump(by_alias=True, exclude_none=True))
+

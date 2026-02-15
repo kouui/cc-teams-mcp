@@ -9,7 +9,7 @@ import sys
 import tempfile
 import time
 
-from claude_teams.common._paths import tasks_dir, teams_dir
+from claude_teams.common._paths import model_to_json, tasks_dir, teams_dir
 from claude_teams.common.models import LeadMember, TeamConfig, TeamCreateResult, TeamDeleteResult, TeammateMember
 
 CLAUDE_DIR = Path.home() / ".claude"
