@@ -127,8 +127,24 @@ def use_tmux_windows() -> bool:
     return os.environ.get("USE_TMUX_WINDOWS") is not None
 
 
+def _has_tmux_session() -> bool:
+    """Return True if the tmux server is running and has at least one session."""
+    result = subprocess.run(
+        ["tmux", "list-sessions"],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0 and bool(result.stdout.strip())
+
+
 def build_tmux_spawn_args(command: str, name: str) -> list[str]:
-    """Build the tmux command used to spawn a teammate process."""
+    """Build the tmux command used to spawn a teammate process.
+
+    Chooses the strategy based on environment:
+    - USE_TMUX_WINDOWS set → ``tmux new-window``
+    - Active tmux session exists → ``tmux split-window``
+    - No session at all → ``tmux new-session -d`` (creates a detached session)
+    """
     if use_tmux_windows():
         return [
             "tmux",
@@ -140,7 +156,24 @@ def build_tmux_spawn_args(command: str, name: str) -> list[str]:
             f"@claude-team | {name}",
             command,
         ]
-    return ["tmux", "split-window", "-dP", "-F", "#{pane_id}", command]
+    if _has_tmux_session():
+        return ["tmux", "split-window", "-dP", "-F", "#{pane_id}", command]
+    # No tmux session — create a detached session so the agent has somewhere to live.
+    session_name = f"claude-agent-{name}"
+    return [
+        "tmux",
+        "new-session",
+        "-d",
+        "-s",
+        session_name,
+        "-x",
+        "200",
+        "-y",
+        "50",
+        "-PF",
+        "#{pane_id}",
+        command,
+    ]
 
 
 def _validate_spawn_args(name: str, binary: str | None, backend_type: BackendType) -> None:
