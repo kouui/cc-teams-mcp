@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from claude_teams.common._filelock import file_lock
-from claude_teams.common._paths import model_to_json, teams_dir
+from claude_teams.common._paths import teams_dir
 from claude_teams.common.models import InboxMessage
 
 TEAMS_DIR = Path.home() / ".claude" / "teams"
@@ -53,7 +53,7 @@ def read_inbox(
             if result:
                 for m in result:
                     m.read = True
-                serialized = [json.loads(model_to_json(m)) for m in all_msgs]
+                serialized = [m.model_dump(by_alias=True, exclude_none=True) for m in all_msgs]
                 path.write_text(json.dumps(serialized))
 
             return result
@@ -90,7 +90,7 @@ def mark_messages_as_read(
                 m.read = True
                 marked += 1
         if marked:
-            serialized = [json.loads(model_to_json(m)) for m in all_msgs]
+            serialized = [m.model_dump(by_alias=True, exclude_none=True) for m in all_msgs]
             path.write_text(json.dumps(serialized))
 
 
@@ -105,7 +105,7 @@ def append_message(
 
     with file_lock(lock_path):
         raw_list = json.loads(path.read_text())
-        raw_list.append(json.loads(model_to_json(message)))
+        raw_list.append(message.model_dump(by_alias=True, exclude_none=True))
         path.write_text(json.dumps(raw_list))
 
 
