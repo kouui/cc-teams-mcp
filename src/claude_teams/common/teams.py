@@ -9,7 +9,8 @@ import sys
 import tempfile
 import time
 
-from claude_teams.common._paths import model_to_json, tasks_dir, teams_dir
+from claude_teams.common._paths import tasks_dir, teams_dir
+from claude_teams.common._serialization import model_to_json
 from claude_teams.common.models import LeadMember, TeamConfig, TeamCreateResult, TeamDeleteResult, TeammateMember
 
 _VALID_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")

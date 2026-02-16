@@ -46,14 +46,11 @@ def read_inbox(
 
             result = [m for m in all_msgs if not m.read] if unread_only else list(all_msgs)
 
-            # Mark returned messages as read in the full list, then persist.
-            # result elements are references into all_msgs, so mutating them
-            # updates all_msgs for serialization.
-            result_set = set(id(m) for m in result)
+            # result elements share references with all_msgs, so mutating
+            # them here updates all_msgs for serialization below.
             if result:
-                for m in all_msgs:
-                    if id(m) in result_set:
-                        m.read = True
+                for m in result:
+                    m.read = True
                 serialized = [m.model_dump(by_alias=True, exclude_none=True) for m in all_msgs]
                 path.write_text(json.dumps(serialized))
 

@@ -192,6 +192,10 @@ async def check_external_agent(
         "alive": tmux["alive"],
         "error": tmux["error"],
         "watching": watcher.is_watching(team_name, agent_name),
+        "note": (
+            "You do NOT need to poll this tool periodically. "
+            "Messages from external agents are automatically injected into your conversation context."
+        ),
     }
     if include_output:
         result["output"] = tmux["output"]

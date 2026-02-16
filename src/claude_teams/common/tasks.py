@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from claude_teams.common._filelock import file_lock
-from claude_teams.common._paths import model_to_json, tasks_dir
+from claude_teams.common._paths import tasks_dir
+from claude_teams.common._serialization import model_to_json
 from claude_teams.common.models import TaskFile
 from claude_teams.common.teams import team_exists
 
