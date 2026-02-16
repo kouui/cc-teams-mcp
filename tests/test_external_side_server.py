@@ -9,7 +9,7 @@ import time
 from fastmcp import Client
 import pytest
 
-from claude_teams.common import messaging, tasks, teams
+from claude_teams.common import _paths, messaging, tasks, teams
 from claude_teams.common.models import TeammateMember
 from claude_teams.external_side.server import mcp
 
@@ -35,10 +35,8 @@ def _make_teammate(
 
 @pytest.fixture
 async def client(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(teams, "TEAMS_DIR", tmp_path / "teams")
-    monkeypatch.setattr(teams, "TASKS_DIR", tmp_path / "tasks")
-    monkeypatch.setattr(tasks, "TASKS_DIR", tmp_path / "tasks")
-    monkeypatch.setattr(messaging, "TEAMS_DIR", tmp_path / "teams")
+    monkeypatch.setattr(_paths, "TEAMS_DIR", tmp_path / "teams")
+    monkeypatch.setattr(_paths, "TASKS_DIR", tmp_path / "tasks")
     (tmp_path / "teams").mkdir()
     (tmp_path / "tasks").mkdir()
     async with Client(mcp) as c:

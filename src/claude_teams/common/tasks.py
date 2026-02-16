@@ -10,9 +10,6 @@ from claude_teams.common._paths import model_to_json, tasks_dir
 from claude_teams.common.models import TaskFile
 from claude_teams.common.teams import team_exists
 
-TASKS_DIR = Path.home() / ".claude" / "tasks"
-
-
 _STATUS_ORDER = {"pending": 0, "in_progress": 1, "completed": 2}
 
 
@@ -100,11 +97,11 @@ def _read_or_pending(path: Path, pending_writes: dict[Path, TaskFile]) -> TaskFi
 
 def _iter_valid_task_files(team_dir: Path, exclude_id: str | None = None) -> list[Path]:
     """Iterate through valid task JSON files in team_dir.
-    
+
     Args:
         team_dir: Directory containing task files
         exclude_id: Optional task ID to exclude from results
-        
+
     Returns:
         List of Path objects for valid task files
     """
@@ -117,14 +114,6 @@ def _iter_valid_task_files(team_dir: Path, exclude_id: str | None = None) -> lis
         if exclude_id is None or f.stem != exclude_id:
             result.append(f)
     return result
-
-
-def _iter_task_files(team_dir: Path, exclude_id: str) -> list[Path]:
-    """List task JSON files in team_dir, excluding the given task ID.
-    
-    Deprecated: Use _iter_valid_task_files instead.
-    """
-    return _iter_valid_task_files(team_dir, exclude_id)
 
 
 def _validate_edge_refs(team_dir: Path, task_id: str, ids: list[str], self_error_msg: str) -> None:
@@ -244,44 +233,28 @@ def _apply_metadata(task: TaskFile, metadata: dict[str, Any]) -> None:
     task.metadata = current if current else None
 
 
-def _clean_task_references(
-    team_dir: Path, task_id: str, pending_writes: dict[Path, TaskFile], remove_blocks: bool = False
-) -> None:
-    """Remove task_id from reference lists of other tasks.
-    
-    Args:
-        team_dir: Directory containing task files
-        task_id: ID of the task being cleaned up
-        pending_writes: Dictionary of pending task updates
-        remove_blocks: If True, also remove from blocks lists (for deletion).
-                      If False, only remove from blocked_by lists (for completion).
-    """
-    for f in _iter_task_files(team_dir, task_id):
-        other = _read_or_pending(f, pending_writes)
-        changed = False
-        
-        # Always clean blocked_by references
-        if task_id in other.blocked_by:
-            other.blocked_by.remove(task_id)
-            changed = True
-        
-        # Optionally clean blocks references (on delete)
-        if remove_blocks and task_id in other.blocks:
-            other.blocks.remove(task_id)
-            changed = True
-        
-        if changed:
-            pending_writes[f] = other
-
-
 def _clean_references_on_complete(team_dir: Path, task_id: str, pending_writes: dict[Path, TaskFile]) -> None:
     """Remove task_id from blocked_by lists of other tasks when completed."""
-    _clean_task_references(team_dir, task_id, pending_writes, remove_blocks=False)
+    for f in _iter_valid_task_files(team_dir, exclude_id=task_id):
+        other = _read_or_pending(f, pending_writes)
+        if task_id in other.blocked_by:
+            other.blocked_by.remove(task_id)
+            pending_writes[f] = other
 
 
 def _clean_references_on_delete(team_dir: Path, task_id: str, pending_writes: dict[Path, TaskFile]) -> None:
     """Remove task_id from both blocked_by and blocks lists of other tasks."""
-    _clean_task_references(team_dir, task_id, pending_writes, remove_blocks=True)
+    for f in _iter_valid_task_files(team_dir, exclude_id=task_id):
+        other = _read_or_pending(f, pending_writes)
+        changed = False
+        if task_id in other.blocked_by:
+            other.blocked_by.remove(task_id)
+            changed = True
+        if task_id in other.blocks:
+            other.blocks.remove(task_id)
+            changed = True
+        if changed:
+            pending_writes[f] = other
 
 
 def _apply_scalar_fields(

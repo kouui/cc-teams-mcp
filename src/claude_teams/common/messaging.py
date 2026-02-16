@@ -8,8 +8,6 @@ from claude_teams.common._filelock import file_lock
 from claude_teams.common._paths import teams_dir
 from claude_teams.common.models import InboxMessage
 
-TEAMS_DIR = Path.home() / ".claude" / "teams"
-
 
 def now_iso() -> str:
     dt = datetime.now(UTC)
@@ -46,13 +44,16 @@ def read_inbox(
             raw_list = json.loads(path.read_text())
             all_msgs = [InboxMessage.model_validate(entry) for entry in raw_list]
 
-            # Filter for unread messages if requested
             result = [m for m in all_msgs if not m.read] if unread_only else list(all_msgs)
 
-            # Mark returned messages as read
+            # Mark returned messages as read in the full list, then persist.
+            # result elements are references into all_msgs, so mutating them
+            # updates all_msgs for serialization.
+            result_set = set(id(m) for m in result)
             if result:
-                for m in result:
-                    m.read = True
+                for m in all_msgs:
+                    if id(m) in result_set:
+                        m.read = True
                 serialized = [m.model_dump(by_alias=True, exclude_none=True) for m in all_msgs]
                 path.write_text(json.dumps(serialized))
 

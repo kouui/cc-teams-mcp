@@ -11,7 +11,7 @@ import pytest
 
 from claude_teams.claude_side.registry import _external_agents
 from claude_teams.claude_side.server import mcp
-from claude_teams.common import messaging, tasks, teams
+from claude_teams.common import _paths, messaging, tasks, teams
 from claude_teams.common.models import TeammateMember
 
 
@@ -43,10 +43,8 @@ def _clear_external_registry():
 
 @pytest.fixture
 async def client(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(teams, "TEAMS_DIR", tmp_path / "teams")
-    monkeypatch.setattr(teams, "TASKS_DIR", tmp_path / "tasks")
-    monkeypatch.setattr(tasks, "TASKS_DIR", tmp_path / "tasks")
-    monkeypatch.setattr(messaging, "TEAMS_DIR", tmp_path / "teams")
+    monkeypatch.setattr(_paths, "TEAMS_DIR", tmp_path / "teams")
+    monkeypatch.setattr(_paths, "TASKS_DIR", tmp_path / "tasks")
     monkeypatch.setattr(
         "claude_teams.claude_side.server.discover_backend_binaries",
         lambda: {"codex": "/usr/bin/echo"},

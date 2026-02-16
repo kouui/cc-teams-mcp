@@ -9,12 +9,8 @@ import sys
 import tempfile
 import time
 
-from claude_teams.common._paths import tasks_dir, teams_dir
+from claude_teams.common._paths import model_to_json, tasks_dir, teams_dir
 from claude_teams.common.models import LeadMember, TeamConfig, TeamCreateResult, TeamDeleteResult, TeammateMember
-
-CLAUDE_DIR = Path.home() / ".claude"
-TEAMS_DIR = CLAUDE_DIR / "teams"
-TASKS_DIR = CLAUDE_DIR / "tasks"
 
 _VALID_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
@@ -68,7 +64,7 @@ def create_team(
     )
 
     config_path = team_dir / "config.json"
-    config_path.write_text(json.dumps(config.model_dump(by_alias=True, exclude_none=True), indent=2))
+    config_path.write_text(model_to_json(config, indent=2))
 
     return TeamCreateResult(
         team_name=name,
@@ -105,7 +101,7 @@ def _replace_with_retry(
 
 def write_config(name: str, config: TeamConfig, base_dir: Path | None = None) -> None:
     config_dir = teams_dir(base_dir) / name
-    data = json.dumps(config.model_dump(by_alias=True, exclude_none=True), indent=2)
+    data = model_to_json(config, indent=2)
 
     # NOTE(victor): atomic write to avoid partial reads from concurrent agents
     fd, tmp_path = tempfile.mkstemp(dir=config_dir, suffix=".tmp")
