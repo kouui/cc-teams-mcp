@@ -9,25 +9,15 @@ import sys
 import tempfile
 import time
 
+from claude_teams.common._paths import tasks_dir, teams_dir
+from claude_teams.common._serialization import model_to_json
 from claude_teams.common.models import LeadMember, TeamConfig, TeamCreateResult, TeamDeleteResult, TeammateMember
-
-CLAUDE_DIR = Path.home() / ".claude"
-TEAMS_DIR = CLAUDE_DIR / "teams"
-TASKS_DIR = CLAUDE_DIR / "tasks"
 
 _VALID_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
-def _teams_dir(base_dir: Path | None = None) -> Path:
-    return (base_dir / "teams") if base_dir else TEAMS_DIR
-
-
-def _tasks_dir(base_dir: Path | None = None) -> Path:
-    return (base_dir / "tasks") if base_dir else TASKS_DIR
-
-
 def team_exists(name: str, base_dir: Path | None = None) -> bool:
-    config_path = _teams_dir(base_dir) / name / "config.json"
+    config_path = teams_dir(base_dir) / name / "config.json"
     return config_path.exists()
 
 
@@ -43,13 +33,13 @@ def create_team(
     if len(name) > 64:
         raise ValueError(f"Team name too long ({len(name)} chars, max 64): {name[:20]!r}...")
 
-    teams_dir = _teams_dir(base_dir)
-    tasks_dir = _tasks_dir(base_dir)
+    team_root = teams_dir(base_dir)
+    task_root = tasks_dir(base_dir)
 
-    team_dir = teams_dir / name
+    team_dir = team_root / name
     team_dir.mkdir(parents=True, exist_ok=True)
 
-    task_dir = tasks_dir / name
+    task_dir = task_root / name
     task_dir.mkdir(parents=True, exist_ok=True)
     (task_dir / ".lock").touch()
 
@@ -75,7 +65,7 @@ def create_team(
     )
 
     config_path = team_dir / "config.json"
-    config_path.write_text(json.dumps(config.model_dump(by_alias=True, exclude_none=True), indent=2))
+    config_path.write_text(model_to_json(config, indent=2))
 
     return TeamCreateResult(
         team_name=name,
@@ -85,7 +75,7 @@ def create_team(
 
 
 def read_config(name: str, base_dir: Path | None = None) -> TeamConfig:
-    config_path = _teams_dir(base_dir) / name / "config.json"
+    config_path = teams_dir(base_dir) / name / "config.json"
     try:
         raw = json.loads(config_path.read_text())
     except FileNotFoundError:
@@ -111,8 +101,8 @@ def _replace_with_retry(
 
 
 def write_config(name: str, config: TeamConfig, base_dir: Path | None = None) -> None:
-    config_dir = _teams_dir(base_dir) / name
-    data = json.dumps(config.model_dump(by_alias=True, exclude_none=True), indent=2)
+    config_dir = teams_dir(base_dir) / name
+    data = model_to_json(config, indent=2)
 
     # NOTE(victor): atomic write to avoid partial reads from concurrent agents
     fd, tmp_path = tempfile.mkstemp(dir=config_dir, suffix=".tmp")
@@ -139,8 +129,8 @@ def delete_team(name: str, base_dir: Path | None = None) -> TeamDeleteResult:
             "Remove all teammates before deleting."
         )
 
-    shutil.rmtree(_teams_dir(base_dir) / name)
-    shutil.rmtree(_tasks_dir(base_dir) / name)
+    shutil.rmtree(teams_dir(base_dir) / name)
+    shutil.rmtree(tasks_dir(base_dir) / name)
 
     return TeamDeleteResult(
         success=True,

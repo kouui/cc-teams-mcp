@@ -6,22 +6,17 @@ from pathlib import Path
 from typing import Any
 
 from claude_teams.common._filelock import file_lock
+from claude_teams.common._paths import tasks_dir
+from claude_teams.common._serialization import model_to_json
 from claude_teams.common.models import TaskFile
 from claude_teams.common.teams import team_exists
-
-TASKS_DIR = Path.home() / ".claude" / "tasks"
-
-
-def _tasks_dir(base_dir: Path | None = None) -> Path:
-    return (base_dir / "tasks") if base_dir else TASKS_DIR
-
 
 _STATUS_ORDER = {"pending": 0, "in_progress": 1, "completed": 2}
 
 
 def _flush_pending_writes(pending_writes: dict[Path, TaskFile]) -> None:
     for path, task_obj in pending_writes.items():
-        path.write_text(json.dumps(task_obj.model_dump(by_alias=True, exclude_none=True)))
+        path.write_text(model_to_json(task_obj))
 
 
 def _would_create_cycle(team_dir: Path, from_id: str, to_id: str, pending_edges: dict[str, set[str]]) -> bool:
@@ -48,13 +43,10 @@ def _would_create_cycle(team_dir: Path, from_id: str, to_id: str, pending_edges:
 
 
 def next_task_id(team_name: str, base_dir: Path | None = None) -> str:
-    team_dir = _tasks_dir(base_dir) / team_name
+    team_dir = tasks_dir(base_dir) / team_name
     ids: list[int] = []
-    for f in team_dir.glob("*.json"):
-        try:
-            ids.append(int(f.stem))
-        except ValueError:
-            continue
+    for f in _iter_valid_task_files(team_dir):
+        ids.append(int(f.stem))
     return str(max(ids) + 1) if ids else "1"
 
 
@@ -70,7 +62,7 @@ def create_task(
         raise ValueError("Task subject must not be empty")
     if not team_exists(team_name, base_dir):
         raise ValueError(f"Team {team_name!r} does not exist")
-    team_dir = _tasks_dir(base_dir) / team_name
+    team_dir = tasks_dir(base_dir) / team_name
     team_dir.mkdir(parents=True, exist_ok=True)
     lock_path = team_dir / ".lock"
 
@@ -85,13 +77,13 @@ def create_task(
             metadata=metadata,
         )
         fpath = team_dir / f"{task_id}.json"
-        fpath.write_text(json.dumps(task.model_dump(by_alias=True, exclude_none=True)))
+        fpath.write_text(model_to_json(task))
 
     return task
 
 
 def get_task(team_name: str, task_id: str, base_dir: Path | None = None) -> TaskFile:
-    team_dir = _tasks_dir(base_dir) / team_name
+    team_dir = tasks_dir(base_dir) / team_name
     fpath = team_dir / f"{task_id}.json"
     raw = json.loads(fpath.read_text())
     return TaskFile(**raw)
@@ -104,15 +96,23 @@ def _read_or_pending(path: Path, pending_writes: dict[Path, TaskFile]) -> TaskFi
     return TaskFile(**json.loads(path.read_text()))
 
 
-def _iter_task_files(team_dir: Path, exclude_id: str) -> list[Path]:
-    """List task JSON files in team_dir, excluding the given task ID."""
+def _iter_valid_task_files(team_dir: Path, exclude_id: str | None = None) -> list[Path]:
+    """Iterate through valid task JSON files in team_dir.
+
+    Args:
+        team_dir: Directory containing task files
+        exclude_id: Optional task ID to exclude from results
+
+    Returns:
+        List of Path objects for valid task files
+    """
     result = []
     for f in team_dir.glob("*.json"):
         try:
             int(f.stem)
         except ValueError:
             continue
-        if f.stem != exclude_id:
+        if exclude_id is None or f.stem != exclude_id:
             result.append(f)
     return result
 
@@ -236,7 +236,7 @@ def _apply_metadata(task: TaskFile, metadata: dict[str, Any]) -> None:
 
 def _clean_references_on_complete(team_dir: Path, task_id: str, pending_writes: dict[Path, TaskFile]) -> None:
     """Remove task_id from blocked_by lists of other tasks when completed."""
-    for f in _iter_task_files(team_dir, task_id):
+    for f in _iter_valid_task_files(team_dir, exclude_id=task_id):
         other = _read_or_pending(f, pending_writes)
         if task_id in other.blocked_by:
             other.blocked_by.remove(task_id)
@@ -245,7 +245,7 @@ def _clean_references_on_complete(team_dir: Path, task_id: str, pending_writes: 
 
 def _clean_references_on_delete(team_dir: Path, task_id: str, pending_writes: dict[Path, TaskFile]) -> None:
     """Remove task_id from both blocked_by and blocks lists of other tasks."""
-    for f in _iter_task_files(team_dir, task_id):
+    for f in _iter_valid_task_files(team_dir, exclude_id=task_id):
         other = _read_or_pending(f, pending_writes)
         changed = False
         if task_id in other.blocked_by:
@@ -304,7 +304,7 @@ def _write_task_updates(
         _flush_pending_writes(pending_writes)
         fpath.unlink()
     else:
-        fpath.write_text(json.dumps(task.model_dump(by_alias=True, exclude_none=True)))
+        fpath.write_text(model_to_json(task))
         _flush_pending_writes(pending_writes)
 
 
@@ -322,7 +322,7 @@ def update_task(
     metadata: dict | None = None,
     base_dir: Path | None = None,
 ) -> TaskFile:
-    team_dir = _tasks_dir(base_dir) / team_name
+    team_dir = tasks_dir(base_dir) / team_name
     lock_path = team_dir / ".lock"
     fpath = team_dir / f"{task_id}.json"
 
@@ -348,31 +348,23 @@ def update_task(
 def list_tasks(team_name: str, base_dir: Path | None = None) -> list[TaskFile]:
     if not team_exists(team_name, base_dir):
         raise ValueError(f"Team {team_name!r} does not exist")
-    team_dir = _tasks_dir(base_dir) / team_name
+    team_dir = tasks_dir(base_dir) / team_name
     tasks: list[TaskFile] = []
-    for f in team_dir.glob("*.json"):
-        try:
-            int(f.stem)
-        except ValueError:
-            continue
+    for f in _iter_valid_task_files(team_dir):
         tasks.append(TaskFile(**json.loads(f.read_text())))
     tasks.sort(key=lambda t: int(t.id))
     return tasks
 
 
 def reset_owner_tasks(team_name: str, agent_name: str, base_dir: Path | None = None) -> None:
-    team_dir = _tasks_dir(base_dir) / team_name
+    team_dir = tasks_dir(base_dir) / team_name
     lock_path = team_dir / ".lock"
 
     with file_lock(lock_path):
-        for f in team_dir.glob("*.json"):
-            try:
-                int(f.stem)
-            except ValueError:
-                continue
+        for f in _iter_valid_task_files(team_dir):
             task = TaskFile(**json.loads(f.read_text()))
             if task.owner == agent_name:
                 if task.status != "completed":
                     task.status = "pending"
                 task.owner = None
-                f.write_text(json.dumps(task.model_dump(by_alias=True, exclude_none=True)))
+                f.write_text(model_to_json(task))

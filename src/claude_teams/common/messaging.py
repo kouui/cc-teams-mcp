@@ -5,13 +5,8 @@ import json
 from pathlib import Path
 
 from claude_teams.common._filelock import file_lock
+from claude_teams.common._paths import teams_dir
 from claude_teams.common.models import InboxMessage
-
-TEAMS_DIR = Path.home() / ".claude" / "teams"
-
-
-def _teams_dir(base_dir: Path | None = None) -> Path:
-    return (base_dir / "teams") if base_dir else TEAMS_DIR
 
 
 def now_iso() -> str:
@@ -20,7 +15,7 @@ def now_iso() -> str:
 
 
 def inbox_path(team_name: str, agent_name: str, base_dir: Path | None = None) -> Path:
-    return _teams_dir(base_dir) / team_name / "inboxes" / f"{agent_name}.json"
+    return teams_dir(base_dir) / team_name / "inboxes" / f"{agent_name}.json"
 
 
 def ensure_inbox(team_name: str, agent_name: str, base_dir: Path | None = None) -> Path:
@@ -42,32 +37,29 @@ def read_inbox(
     if not path.exists():
         return []
 
+    # Always need lock if marking as read
     if mark_as_read:
         lock_path = path.parent / ".lock"
         with file_lock(lock_path):
             raw_list = json.loads(path.read_text())
             all_msgs = [InboxMessage.model_validate(entry) for entry in raw_list]
 
-            if unread_only:
-                result = [m for m in all_msgs if not m.read]
-            else:
-                result = list(all_msgs)
+            result = [m for m in all_msgs if not m.read] if unread_only else list(all_msgs)
 
+            # result elements share references with all_msgs, so mutating
+            # them here updates all_msgs for serialization below.
             if result:
-                for m in all_msgs:
-                    if m in result:
-                        m.read = True
+                for m in result:
+                    m.read = True
                 serialized = [m.model_dump(by_alias=True, exclude_none=True) for m in all_msgs]
                 path.write_text(json.dumps(serialized))
 
             return result
     else:
+        # Read-only path doesn't need lock
         raw_list = json.loads(path.read_text())
         all_msgs = [InboxMessage.model_validate(entry) for entry in raw_list]
-
-        if unread_only:
-            return [m for m in all_msgs if not m.read]
-        return list(all_msgs)
+        return [m for m in all_msgs if not m.read] if unread_only else list(all_msgs)
 
 
 def mark_messages_as_read(
