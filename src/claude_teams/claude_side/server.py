@@ -8,7 +8,7 @@ This server only bridges external agents into the native team system.
 """
 
 import logging
-import os.path
+from pathlib import PurePath
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -93,7 +93,7 @@ async def spawn_external_agent(
 
     Names must be unique within the team.
     """
-    if not os.path.isabs(cwd):
+    if not PurePath(cwd).is_absolute():
         raise ToolError("cwd must be an absolute path.")
     binaries: dict[str, str] = ctx.lifespan_context.get("binaries", {})
     try:

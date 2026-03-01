@@ -114,8 +114,8 @@ def write_config(name: str, config: TeamConfig, base_dir: Path | None = None) ->
     except BaseException:
         if fd >= 0:
             os.close(fd)
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+        if Path(tmp_path).exists():
+            Path(tmp_path).unlink()
         raise
 
 
