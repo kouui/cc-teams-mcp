@@ -77,8 +77,8 @@ def _find_external_teammate(team_name: str, name: str) -> TeammateMember:
 def register_external_agent(
     team_name: str,
     name: str,
+    cwd: str,
     agent_type: str = "general-purpose",
-    cwd: str = "",
 ) -> dict:
     """Register a non-Claude agent in the team config without spawning a process.
 
@@ -88,7 +88,12 @@ def register_external_agent(
     Note: spawn_external_agent already includes registration — use this tool
     only when you need to register an agent without immediately starting it
     (e.g., pre-provisioning). Do NOT call both register and spawn for the same agent.
+
+    Args:
+        cwd: Working directory (must be an absolute path).
     """
+    if not os.path.isabs(cwd):
+        raise ToolError("cwd must be an absolute path.")
     try:
         member = _register_agent(
             team_name,
@@ -111,10 +116,10 @@ async def spawn_external_agent(
     team_name: str,
     name: str,
     prompt: str,
+    cwd: str,
     ctx: Context,
     backend_type: BackendType = "codex",
     subagent_type: str = "general-purpose",
-    cwd: str = "",
 ) -> dict:
     """Spawn a new external (non-Claude) agent in a tmux pane.
 
@@ -128,8 +133,8 @@ async def spawn_external_agent(
 
     Names must be unique within the team.
     """
-    if not cwd or not os.path.isabs(cwd):
-        raise ToolError("cwd is required and must be an absolute path.")
+    if not os.path.isabs(cwd):
+        raise ToolError("cwd must be an absolute path.")
     binaries: dict[str, str] = ctx.lifespan_context.get("binaries", {})
     try:
         member = spawn_external(
