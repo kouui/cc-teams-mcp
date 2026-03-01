@@ -110,7 +110,6 @@ def build_spawn_command(backend_type: BackendType, binary: str, prompt: str, cwd
         return (
             f"cd {shlex.quote(cwd)} && "
             f"{shlex.quote(binary)} "
-            f"-m gemini-3.1-pro "
             f"--yolo "
             f"--screen-reader "
             f"--prompt-interactive {shlex.quote(prompt)}"
