@@ -1,7 +1,8 @@
 """Spawner for external (non-Claude) agent instances in tmux.
 
-Currently supports codex backend. To add a new backend, extend BackendType
-and add an elif branch in build_spawn_command / wrap_prompt / discover_backend_binaries.
+Supported backends: codex, gemini.
+To add a new backend, extend BackendType and add an elif branch in
+build_spawn_command / wrap_prompt / discover_backend_binaries.
 """
 
 from __future__ import annotations
@@ -22,9 +23,10 @@ from claude_teams.common.teams import _VALID_NAME_RE
 # Backend type definition
 # ---------------------------------------------------------------------------
 
-BackendType = Literal["codex"]
+BackendType = Literal["codex", "gemini"]
 
 _CODEX_BINARY_NAME = "codex"
+_GEMINI_BINARY_NAME = "gemini"
 
 # ---------------------------------------------------------------------------
 # Prompt template
@@ -75,7 +77,7 @@ def wrap_prompt(
     teammates: list[dict[str, str]] | None = None,
 ) -> str:
     """Wrap a raw prompt with team context for the given backend."""
-    if backend_type == "codex":
+    if backend_type in ("codex", "gemini"):
         template = _CODEX_PROMPT_TEMPLATE
     else:
         raise ValueError(f"Unknown backend type: {backend_type!r}")
@@ -104,6 +106,15 @@ def build_spawn_command(backend_type: BackendType, binary: str, prompt: str, cwd
             f"--no-alt-screen "
             f"{shlex.quote(prompt)}"
         )
+    if backend_type == "gemini":
+        return (
+            f"cd {shlex.quote(cwd)} && "
+            f"{shlex.quote(binary)} "
+            f"-m gemini-3.1-pro "
+            f"--yolo "
+            f"--screen-reader "
+            f"--prompt-interactive {shlex.quote(prompt)}"
+        )
     raise ValueError(f"Unknown backend type: {backend_type!r}")
 
 
@@ -115,10 +126,12 @@ def build_spawn_command(backend_type: BackendType, binary: str, prompt: str, cwd
 def discover_backend_binaries() -> dict[str, str]:
     """Discover available backend binaries on PATH."""
     found: dict[str, str] = {}
-    # Add new backends here
     path = shutil.which(_CODEX_BINARY_NAME)
     if path:
         found["codex"] = path
+    path = shutil.which(_GEMINI_BINARY_NAME)
+    if path:
+        found["gemini"] = path
     return found
 
 

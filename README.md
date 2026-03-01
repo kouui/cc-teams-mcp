@@ -64,7 +64,7 @@ args = ["--from", "git+https://github.com/kouui/cc-teams-mcp", "claude-teams-ext
 
 - Python 3.12+
 - [tmux](https://github.com/tmux/tmux)
-- At least one external agent CLI on PATH: [Codex CLI](https://github.com/openai/codex) (`codex`)
+- At least one external agent CLI on PATH: [Codex CLI](https://github.com/openai/codex) (`codex`), [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`)
 
 ## Tools
 
@@ -138,9 +138,14 @@ src/claude_teams/
 
 ## Backends
 
-Currently supported: **Codex CLI** (`codex`).
+Currently supported: **Codex CLI** (`codex`), **Gemini CLI** (`gemini`).
 
-Codex teammates are spawned in tmux with `--dangerously-bypass-approvals-and-sandbox --no-alt-screen`. They receive a prompt wrapper with team context (members list, MCP-B tool usage, communication rules).
+| Backend | Spawn flags                                                     | Notes                                                |
+| ------- | --------------------------------------------------------------- | ---------------------------------------------------- |
+| Codex   | `--dangerously-bypass-approvals-and-sandbox --no-alt-screen`    | Prompt as positional arg                             |
+| Gemini  | `-m gemini-3.1-pro --yolo --screen-reader --prompt-interactive` | `--screen-reader` disables TUI for clean tmux output |
+
+All teammates receive a prompt wrapper with team context (members list, MCP-B tool usage, communication rules).
 
 Adding a new backend requires extending `BackendType` and adding `elif` branches in `build_spawn_command`, `wrap_prompt`, and `discover_backend_binaries` in `spawner.py`.
 
