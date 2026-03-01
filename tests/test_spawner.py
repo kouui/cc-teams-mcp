@@ -82,6 +82,15 @@ class TestBuildSpawnCommand:
         assert "--agent-id" not in cmd
         assert "--team-name" not in cmd
 
+    def test_gemini_format(self) -> None:
+        cmd = build_spawn_command("gemini", "/usr/bin/gemini", "Do research", "/tmp/work")
+        assert "/usr/bin/gemini" in cmd
+        assert "-m gemini-3.1-pro" in cmd
+        assert "--yolo" in cmd
+        assert "--screen-reader" in cmd
+        assert "--prompt-interactive" in cmd
+        assert "cd /tmp/work" in cmd
+
 
 class TestSpawnExternalNameValidation:
     def test_should_reject_empty_name(self, team_dir: Path) -> None:
@@ -322,9 +331,22 @@ class TestHasTmuxSession:
 class TestDiscoverBackendBinaries:
     @patch("claude_teams.claude_side.spawner.shutil.which")
     def test_should_find_codex_binary(self, mock_which: MagicMock) -> None:
-        mock_which.return_value = "/usr/local/bin/codex"
+        mock_which.side_effect = lambda name: "/usr/local/bin/codex" if name == "codex" else None
         result = discover_backend_binaries()
         assert result == {"codex": "/usr/local/bin/codex"}
+
+    @patch("claude_teams.claude_side.spawner.shutil.which")
+    def test_should_find_gemini_binary(self, mock_which: MagicMock) -> None:
+        mock_which.side_effect = lambda name: "/usr/bin/gemini" if name == "gemini" else None
+        result = discover_backend_binaries()
+        assert result == {"gemini": "/usr/bin/gemini"}
+
+    @patch("claude_teams.claude_side.spawner.shutil.which")
+    def test_should_find_both_binaries(self, mock_which: MagicMock) -> None:
+        binaries = {"codex": "/usr/local/bin/codex", "gemini": "/usr/bin/gemini"}
+        mock_which.side_effect = lambda name: binaries.get(name)
+        result = discover_backend_binaries()
+        assert result == binaries
 
     @patch("claude_teams.claude_side.spawner.shutil.which")
     def test_should_return_empty_when_not_found(self, mock_which: MagicMock) -> None:
