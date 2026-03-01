@@ -76,7 +76,7 @@ class TestRegisterExternalAgent:
         result = _data(
             await client.call_tool(
                 "register_external_agent",
-                {"team_name": "tr1", "name": "reviewer"},
+                {"team_name": "tr1", "name": "reviewer", "cwd": "/tmp"},
             )
         )
         assert result["name"] == "reviewer"
@@ -90,7 +90,7 @@ class TestRegisterExternalAgent:
         _setup_team("tr2")
         await client.call_tool(
             "register_external_agent",
-            {"team_name": "tr2", "name": "worker"},
+            {"team_name": "tr2", "name": "worker", "cwd": "/tmp"},
         )
         inbox = messaging.inbox_path("tr2", "worker")
         assert inbox.exists()
@@ -99,11 +99,11 @@ class TestRegisterExternalAgent:
         _setup_team("tr3")
         await client.call_tool(
             "register_external_agent",
-            {"team_name": "tr3", "name": "dup"},
+            {"team_name": "tr3", "name": "dup", "cwd": "/tmp"},
         )
         result = await client.call_tool(
             "register_external_agent",
-            {"team_name": "tr3", "name": "dup"},
+            {"team_name": "tr3", "name": "dup", "cwd": "/tmp"},
             raise_on_error=False,
         )
         assert result.is_error is True
@@ -161,7 +161,7 @@ class TestSpawnExternalAgent:
         _setup_team("t4")
         await client.call_tool(
             "register_external_agent",
-            {"team_name": "t4", "name": "worker"},
+            {"team_name": "t4", "name": "worker", "cwd": "/tmp"},
         )
         result = await client.call_tool(
             "spawn_external_agent",
