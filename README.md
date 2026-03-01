@@ -100,7 +100,7 @@ Claude Code (team-lead)
   │   └── Event-driven message delivery (auto-injected turns)
   │
   ├── MCP-A (claude-teams-bridge)
-  │   ├── Tools: register, spawn, check, shutdown
+  │   ├── Tools: spawn, check, shutdown
   │   └── Inbox watcher → tmux send-keys injection
   │
   └── Claude teammates (native communication, no MCP needed)

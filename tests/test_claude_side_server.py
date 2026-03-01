@@ -11,7 +11,7 @@ import pytest
 
 from claude_teams.claude_side.registry import _external_agents
 from claude_teams.claude_side.server import mcp
-from claude_teams.common import _paths, tasks, teams
+from claude_teams.common import _paths, teams
 from claude_teams.common.models import TeammateMember
 
 
