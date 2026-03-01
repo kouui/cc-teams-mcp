@@ -143,7 +143,7 @@ Currently supported: **Codex CLI** (`codex`), **Gemini CLI** (`gemini`).
 | Backend | Spawn flags                                                     | Notes                                                |
 | ------- | --------------------------------------------------------------- | ---------------------------------------------------- |
 | Codex   | `--dangerously-bypass-approvals-and-sandbox --no-alt-screen`    | Prompt as positional arg                             |
-| Gemini  | `-m gemini-3.1-pro --yolo --screen-reader --prompt-interactive` | `--screen-reader` disables TUI for clean tmux output |
+| Gemini  | `--yolo --screen-reader --prompt-interactive`                   | `--screen-reader` disables TUI for clean tmux output |
 
 All teammates receive a prompt wrapper with team context (members list, MCP-B tool usage, communication rules).
 
