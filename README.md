@@ -72,7 +72,6 @@ args = ["--from", "git+https://github.com/kouui/cc-teams-mcp", "claude-teams-ext
 
 | Tool                      | Description                                                    |
 | ------------------------- | -------------------------------------------------------------- |
-| `register_external_agent` | Register a non-Claude agent in team config without spawning    |
 | `spawn_external_agent`    | Spawn an external agent in tmux with inbox watcher             |
 | `check_external_agent`    | Check agent status: alive/dead, watcher state, terminal output |
 | `shutdown_external_agent` | Kill tmux pane, stop watcher, unregister, reset tasks          |
@@ -101,7 +100,7 @@ Claude Code (team-lead)
   │   └── Event-driven message delivery (auto-injected turns)
   │
   ├── MCP-A (claude-teams-bridge)
-  │   ├── Tools: register, spawn, check, shutdown
+  │   ├── Tools: spawn, check, shutdown
   │   └── Inbox watcher → tmux send-keys injection
   │
   └── Claude teammates (native communication, no MCP needed)
