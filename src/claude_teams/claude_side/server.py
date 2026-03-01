@@ -9,7 +9,6 @@ This server only bridges external agents into the native team system.
 
 import logging
 import os.path
-from typing import Any
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -17,7 +16,6 @@ from fastmcp.server.lifespan import lifespan
 
 from claude_teams.claude_side import watcher
 from claude_teams.claude_side.registry import is_external, unregister_external_agent
-from claude_teams.claude_side.registry import register_external_agent as _register_agent
 from claude_teams.claude_side.spawner import BackendType, discover_backend_binaries, kill_tmux_pane, spawn_external
 from claude_teams.claude_side.tmux_introspection import peek_pane, resolve_pane_target
 from claude_teams.common import tasks, teams
@@ -71,44 +69,6 @@ def _find_external_teammate(team_name: str, name: str) -> TeammateMember:
         if isinstance(m, TeammateMember) and m.name == name:
             return m
     raise ToolError(f"External agent {name!r} not found in team {team_name!r}")
-
-
-@mcp.tool
-def register_external_agent(
-    team_name: str,
-    name: str,
-    cwd: str,
-    agent_type: str = "general-purpose",
-) -> dict:
-    """Register a non-Claude agent in the team config without spawning a process.
-
-    Creates the agent's entry in config.json and its inbox file so that
-    Claude Code's native SendMessage can write to it.
-
-    Note: spawn_external_agent already includes registration — use this tool
-    only when you need to register an agent without immediately starting it
-    (e.g., pre-provisioning). Do NOT call both register and spawn for the same agent.
-
-    Args:
-        cwd: Working directory (must be an absolute path).
-    """
-    if not os.path.isabs(cwd):
-        raise ToolError("cwd must be an absolute path.")
-    try:
-        member = _register_agent(
-            team_name,
-            name,
-            agent_type=agent_type,
-            cwd=cwd,
-        )
-    except (ValueError, FileNotFoundError) as e:
-        raise ToolError(str(e))
-    return {
-        "agent_id": member.agent_id,
-        "name": member.name,
-        "team_name": team_name,
-        "message": f"Agent {name!r} registered in team {team_name!r}. Use spawn_external_agent to start it.",
-    }
 
 
 @mcp.tool
