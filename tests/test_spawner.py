@@ -85,7 +85,7 @@ class TestBuildSpawnCommand:
     def test_gemini_format(self) -> None:
         cmd = build_spawn_command("gemini", "/usr/bin/gemini", "Do research", "/tmp/work")
         assert "/usr/bin/gemini" in cmd
-        assert "-m gemini-3.1-pro" in cmd
+        assert "-m " not in cmd  # no hardcoded model, use Gemini CLI default
         assert "--yolo" in cmd
         assert "--screen-reader" in cmd
         assert "--prompt-interactive" in cmd
